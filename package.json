@@ -1,0 +1,30 @@
+{
+  "repository": "#",
+  "license": "UNLICENSED",
+  "author": "",
+  "scripts": {
+    "build": "webpack --config ./bundler/webpack.prod.js",
+    "dev": "webpack serve --config ./bundler/webpack.dev.js",
+    "deploy": "vercel --prod"
+  },
+  "engines": {
+    "node": "^22.18.0 || >=24.11.0"
+  },
+  "dependencies": {
+    "@babel/core": "^8.1.2",
+    "@babel/preset-env": "^8.0.7",
+    "@tweenjs/tween.js": "^25.0.0",
+    "babel-loader": "^10.1.1",
+    "copy-webpack-plugin": "^14.0.0",
+    "css-loader": "^7.1.5",
+    "html-loader": "^5.1.0",
+    "html-webpack-plugin": "^5.6.8",
+    "lil-gui": "^0.21.0",
+    "mini-css-extract-plugin": "^2.10.2",
+    "three": "^0.187.0",
+    "webpack": "^5.112.2",
+    "webpack-cli": "^7.3.1",
+    "webpack-dev-server": "^6.1.0",
+    "webpack-merge": "^6.0.1"
+  }
+}
