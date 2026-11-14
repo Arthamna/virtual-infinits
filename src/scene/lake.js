@@ -1,8 +1,8 @@
 import * as THREE from 'three'
-import { Water } from 'three/examples/jsm/objects/Water.js'
+import { Water } from 'three/examples/jsm/objects/Water2.js'
 import { createConcreteTexture, createWaterNormalTexture } from './textures'
 
-export function createParkLake(sunDirection, grassTex) {
+export function createParkLake(grassTex) {
     const group = new THREE.Group()
 
     const lakeCenterX = -5.5
@@ -102,23 +102,19 @@ export function createParkLake(sunDirection, grassTex) {
 
     const lakeGeo = new THREE.ShapeGeometry(lakeShape)
     lakeGeo.rotateX(-Math.PI / 2)
+    const waterNormals = createWaterNormalTexture()
+    // Water2 = Reflector + Refractor: real-time planar reflection and refraction of the lake bed
     const lakeWater = new Water(lakeGeo, {
         textureWidth: 1024,
         textureHeight: 1024,
-        waterNormals: createWaterNormalTexture(),
-        sunDirection: sunDirection.clone().normalize(),
-        sunColor: 0xfff2d6,
-        waterColor: 0x3b4d31,
-        distortionScale: 0.45,
-        fog: true
+        normalMap0: waterNormals,
+        normalMap1: waterNormals,
+        color: 0xc8dcc0,
+        scale: 6,
+        flowDirection: new THREE.Vector2(0.6, 0.35),
+        flowSpeed: 0.015,
+        reflectivity: 0.08
     })
-    lakeWater.material.uniforms['size'].value = 11.0
-    lakeWater.material.fragmentShader = lakeWater.material.fragmentShader
-        .replace('float rf0 = 0.3;', 'float rf0 = 0.035;')
-        .replace(
-            'vec3 albedo = mix( ( sunColor * diffuseLight * 0.3 + scatter ) * getShadowMask(), ( vec3( 0.1 ) + reflectionSample * 0.9 + reflectionSample * specularLight ), reflectance );',
-            'vec3 albedo = mix( ( sunColor * diffuseLight * 0.18 + scatter * 1.35 ) * getShadowMask(), ( vec3( 0.05, 0.08, 0.04 ) + reflectionSample * 0.62 + reflectionSample * specularLight * 0.45 ), reflectance );'
-        )
     lakeWater.position.y = -0.54
     group.add(lakeWater)
 

@@ -5,6 +5,8 @@ export function createParkGrass({
     lakeCutoutPath,
     lakeParams,
     curveSamples,
+    pathHalfWidth,
+    plazaGroup,
     perimeterBounds
 }) {
     const group = new THREE.Group()
@@ -43,45 +45,73 @@ export function createParkGrass({
     grass.receiveShadow = true
     group.add(grass)
 
+    // one instance = a tuft of short mown-lawn blades (single triangles), dark root -> light tip
+    const tuftBlades = 9
+    const tuftH = 0.11
+    const tuftPos = []
+    const tuftCol = []
+    let tSeed = 7
+    const tRand = () => {
+        tSeed = (tSeed * 1664525 + 1013904223) >>> 0
+        return tSeed / 4294967296
+    }
+    for (let i = 0; i < tuftBlades; i++) {
+        const a = tRand() * Math.PI * 2
+        const r = Math.sqrt(tRand()) * 0.09
+        const bx = Math.cos(a) * r
+        const bz = Math.sin(a) * r
+        const facing = tRand() * Math.PI
+        const w = 0.006 + tRand() * 0.005
+        const h = tuftH * (0.55 + tRand() * 0.45)
+        const lean = (tRand() - 0.5) * 0.05
+        const wx = Math.cos(facing) * w
+        const wz = Math.sin(facing) * w
+        tuftPos.push(bx - wx, 0, bz - wz, bx + wx, 0, bz + wz, bx + lean, h, bz + lean * 0.6)
+        tuftCol.push(0.45, 0.5, 0.4, 0.45, 0.5, 0.4, 1, 1, 0.9)
+    }
     const bladeGeo = new THREE.BufferGeometry()
-    const bladeVerts = new Float32Array([
-        -0.028, 0.0, 0.0,
-        0.028, 0.0, 0.0,
-        -0.018, 0.12, 0.012,
-        0.018, 0.12, 0.012,
-        0.0, 0.25, 0.036
-    ])
-    bladeGeo.setAttribute('position', new THREE.BufferAttribute(bladeVerts, 3))
-    bladeGeo.setIndex([0, 1, 2, 1, 3, 2, 2, 3, 4])
-    bladeGeo.computeVertexNormals()
+    bladeGeo.setAttribute('position', new THREE.Float32BufferAttribute(tuftPos, 3))
+    bladeGeo.setAttribute('color', new THREE.Float32BufferAttribute(tuftCol, 3))
+    // up-facing normals make blades shade like the ground under them instead of glowing at grazing sun
+    bladeGeo.setAttribute('normal', new THREE.Float32BufferAttribute(tuftPos.map((_, i) => (i % 3 === 1 ? 1 : 0)), 3))
 
-    const grassWindUniforms = { uTime: { value: 0 } }
+    const grassWindUniforms = { uTime: { value: 0 }, uWind: { value: 1 } }
     const bladeMat = new THREE.MeshStandardMaterial({
         color: 0xffffff,
-        roughness: 0.85,
+        roughness: 0.9,
         metalness: 0.0,
+        vertexColors: true,
         side: THREE.DoubleSide
     })
     bladeMat.onBeforeCompile = (shader) => {
         shader.uniforms.uTime = grassWindUniforms.uTime
-        shader.vertexShader = 'uniform float uTime;\n' + shader.vertexShader
+        shader.uniforms.uWind = grassWindUniforms.uWind
+        shader.vertexShader = 'uniform float uTime;\nuniform float uWind;\n' + shader.vertexShader
         shader.vertexShader = shader.vertexShader.replace(
             '#include <begin_vertex>',
             `#include <begin_vertex>
-            float tipFactor = clamp(position.y / 0.25, 0.0, 1.0);
+            float tipFactor = clamp(position.y / 0.11, 0.0, 1.0);
             vec4 instWorld = vec4(0.0, 0.0, 0.0, 1.0);
             #ifdef USE_INSTANCING
                 instWorld = instanceMatrix * instWorld;
             #endif
-            float sway = sin(uTime * 1.9 + instWorld.x * 0.28 + instWorld.z * 0.24) * 0.045 * tipFactor * tipFactor;
+            float sway = sin(uTime * 1.9 + instWorld.x * 0.28 + instWorld.z * 0.24) * 0.018 * uWind * tipFactor * tipFactor;
             transformed.x += sway;
             transformed.z += sway * 0.5;`
         )
     }
 
-    const walkwayCheckPts = []
-    for (let i = 0; i < curveSamples.length; i += 4) {
-        walkwayCheckPts.push(curveSamples[i].pt)
+    // every sample (not every 4th) so blades never land on the lake path between samples
+    const walkwayCheckPts = curveSamples.map((c) => c.pt)
+    const walkwayClearR2 = (pathHalfWidth + 0.25) ** 2
+
+    plazaGroup.updateMatrixWorld(true)
+    const plazaBox = new THREE.Box3().setFromObject(plazaGroup).expandByScalar(0.15)
+    const plazaRay = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 30)
+    const isOnPlaza = (x, z) => {
+        if (x < plazaBox.min.x || x > plazaBox.max.x || z < plazaBox.min.z || z > plazaBox.max.z) return false
+        plazaRay.ray.origin.set(x, 20, z)
+        return plazaRay.intersectObject(plazaGroup, true).length > 0
     }
 
     const isInsideLakeOrRim = (x, z) => {
@@ -99,14 +129,14 @@ export function createParkGrass({
     }
 
     const isBlockedGrassPos = (x, z) => {
-        if (x > -35.4 && x < 25.4 && z > -4.2 && z < 7.2) return true
         if (isInsideLakeOrRim(x, z)) return true
         for (let i = 0; i < walkwayCheckPts.length; i++) {
             const p = walkwayCheckPts[i]
             const dx = x - p.x
             const dz = z - p.z
-            if (dx * dx + dz * dz < 2.4) return true
+            if (dx * dx + dz * dz < walkwayClearR2) return true
         }
+        if (isOnPlaza(x, z)) return true
         if (x < pInnerMinX || x > pInnerMaxX || z < pInnerMinZ || z > pInnerMaxZ) return true
         const cxInner = x < pInnerMinX + innerCornerR
             ? pInnerMinX + innerCornerR
@@ -122,12 +152,12 @@ export function createParkGrass({
         return false
     }
 
-    const maxGrassBlades = 24000
+    const maxGrassBlades = 120000
     const grassBlades = new THREE.InstancedMesh(bladeGeo, bladeMat, maxGrassBlades)
     grassBlades.receiveShadow = true
     const dummy = new THREE.Object3D()
     const bladeColor = new THREE.Color()
-    const palette = [0x3d6b2b, 0x4b7d34, 0x578c3c, 0x355e24]
+    const palette = [0x5a8a2c, 0x649434, 0x527f28, 0x6f9a36, 0x5e8530]
 
     let seed = 1337
     const nextRand = () => {
@@ -145,8 +175,8 @@ export function createParkGrass({
 
         dummy.position.set(x, -0.04, z)
         dummy.rotation.set((nextRand() - 0.5) * 0.18, nextRand() * Math.PI * 2, (nextRand() - 0.5) * 0.18)
-        const scaleXZ = 0.85 + nextRand() * 0.65
-        const scaleY = 0.75 + nextRand() * 0.9
+        const scaleXZ = 0.8 + nextRand() * 0.5
+        const scaleY = 0.7 + nextRand() * 0.6
         dummy.scale.set(scaleXZ, scaleY, scaleXZ)
         dummy.updateMatrix()
         grassBlades.setMatrixAt(placed, dummy.matrix)

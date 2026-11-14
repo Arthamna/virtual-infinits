@@ -11,13 +11,13 @@ function configureRepeatTexture(texture, repeatX, repeatY, isColor = true) {
     return texture
 }
 
-export function createPavingTexture(repeatX = 18, repeatY = 6) {
+export function createPavingTexture(repeatX = 18, repeatY = 6, grey = false) {
     const canvas = document.createElement('canvas')
     canvas.width = 512
     canvas.height = 512
     const ctx = canvas.getContext('2d')
 
-    ctx.fillStyle = '#5a554c'
+    ctx.fillStyle = grey ? '#55575a' : '#5a554c'
     ctx.fillRect(0, 0, 512, 512)
 
     const rows = 8
@@ -31,7 +31,7 @@ export function createPavingTexture(repeatX = 18, repeatY = 6) {
             const x = c * brickW + offset
             const y = r * brickH
             const shade = 110 + ((r * 13 + c * 29) % 24)
-            ctx.fillStyle = `rgb(${shade + 4}, ${shade}, ${shade - 8})`
+            ctx.fillStyle = grey ? `rgb(${shade}, ${shade + 1}, ${shade + 3})` : `rgb(${shade + 4}, ${shade}, ${shade - 8})`
             ctx.fillRect(x + 3, y + 3, brickW - 6, brickH - 6)
 
             ctx.fillStyle = 'rgba(0,0,0,0.06)'
@@ -90,26 +90,6 @@ export function createConcreteTexture(repeatX = 4, repeatY = 2) {
     return configureRepeatTexture(new THREE.CanvasTexture(canvas), repeatX, repeatY)
 }
 
-export function createBarkTexture(repeatX = 2, repeatY = 4) {
-    const canvas = document.createElement('canvas')
-    canvas.width = 256
-    canvas.height = 512
-    const ctx = canvas.getContext('2d')
-
-    ctx.fillStyle = '#6c5f53'
-    ctx.fillRect(0, 0, 256, 512)
-
-    for (let i = 0; i < 180; i++) {
-        const x = (i * 47) % 256
-        const y = (i * 89) % 512
-        const h = 30 + (i % 60)
-        const w = 3 + (i % 6)
-        ctx.fillStyle = i % 3 === 0 ? 'rgba(42,35,28,0.45)' : 'rgba(135,122,108,0.28)'
-        ctx.fillRect(x, y, w, h)
-    }
-
-    return configureRepeatTexture(new THREE.CanvasTexture(canvas), repeatX, repeatY)
-}
 
 export function createWaterNormalTexture() {
     const size = 512
@@ -407,13 +387,13 @@ export function createTotemUrlTexture() {
 }
 
 export function createGrassTexture() {
-    const size = 256
+    const size = 512
     const canvas = document.createElement('canvas')
     canvas.width = size
     canvas.height = size
     const ctx = canvas.getContext('2d')
 
-    ctx.fillStyle = '#3f682d'
+    ctx.fillStyle = '#56852c'
     ctx.fillRect(0, 0, size, size)
 
     let seed = 42
@@ -422,23 +402,28 @@ export function createGrassTexture() {
         return seed / 4294967296
     }
 
-    for (let i = 0; i < 450; i++) {
+    // soft large-scale tone patches (wear, moisture) so the lawn is not a flat colour
+    for (let i = 0; i < 260; i++) {
         const x = rand() * size
         const y = rand() * size
-        const r = 6 + rand() * 14
-        ctx.fillStyle = rand() > 0.5 ? 'rgba(82, 130, 52, 0.14)' : 'rgba(38, 68, 25, 0.14)'
-        ctx.beginPath()
-        ctx.arc(x, y, r, 0, Math.PI * 2)
-        ctx.fill()
+        const r = 20 + rand() * 50
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r)
+        const c = rand() > 0.5 ? '112, 150, 52' : '58, 96, 30'
+        g.addColorStop(0, `rgba(${c}, 0.16)`)
+        g.addColorStop(1, `rgba(${c}, 0)`)
+        ctx.fillStyle = g
+        ctx.fillRect(x - r, y - r, r * 2, r * 2)
     }
 
-    ctx.lineWidth = 1.2
-    for (let i = 0; i < 2400; i++) {
+    // fine short blade strokes
+    ctx.lineWidth = 1
+    const strokeCols = ['rgba(128, 168, 62, 0.45)', 'rgba(96, 140, 46, 0.45)', 'rgba(52, 86, 26, 0.45)', 'rgba(150, 170, 80, 0.3)']
+    for (let i = 0; i < 26000; i++) {
         const x = rand() * size
         const y = rand() * size
-        const h = 3 + rand() * 6
-        const lean = (rand() - 0.5) * 3
-        ctx.strokeStyle = rand() > 0.45 ? 'rgba(96, 148, 60, 0.35)' : 'rgba(36, 66, 24, 0.32)'
+        const h = 2 + rand() * 4
+        const lean = (rand() - 0.5) * 2.5
+        ctx.strokeStyle = strokeCols[Math.floor(rand() * strokeCols.length)]
         ctx.beginPath()
         ctx.moveTo(x, y)
         ctx.lineTo(x + lean, y - h)
@@ -453,96 +438,3 @@ export function createGrassTexture() {
     return texture
 }
 
-export function createLeafSprigTexture() {
-    const size = 256
-    const canvas = document.createElement('canvas')
-    canvas.width = size
-    canvas.height = size
-    const ctx = canvas.getContext('2d')
-    ctx.clearRect(0, 0, size, size)
-
-    let seed = 91
-    const rand = () => {
-        seed = (seed * 1664525 + 1013904223) >>> 0
-        return seed / 4294967296
-    }
-
-    const puffs = [
-        [128, 128, 62],
-        [82, 92, 48],
-        [174, 90, 48],
-        [76, 158, 50],
-        [178, 156, 50],
-        [128, 72, 44],
-        [128, 182, 44],
-        [62, 124, 42],
-        [194, 124, 42]
-    ]
-
-    for (let p = 0; p < puffs.length; p++) {
-        const [px, py, pr] = puffs[p]
-        for (let i = 0; i < 45; i++) {
-            const a = rand() * Math.PI * 2
-            const r = Math.pow(rand(), 0.65) * pr
-            const lx = px + Math.cos(a) * r
-            const ly = py + Math.sin(a) * r
-            const rw = 8 + rand() * 8
-            const rh = 6 + rand() * 6
-            ctx.save()
-            ctx.translate(lx, ly)
-            ctx.rotate(rand() * Math.PI * 2)
-            ctx.fillStyle = rand() > 0.5 ? '#0d1f08' : '#142c0d'
-            ctx.beginPath()
-            ctx.ellipse(0, 0, rw, rh, 0, 0, Math.PI * 2)
-            ctx.fill()
-            ctx.restore()
-        }
-    }
-
-    const midColors = ['#1c3b13', '#234718', '#2b541e', '#325f23']
-    for (let p = 0; p < puffs.length; p++) {
-        const [px, py, pr] = puffs[p]
-        for (let i = 0; i < 65; i++) {
-            const a = rand() * Math.PI * 2
-            const r = Math.pow(rand(), 0.7) * (pr * 0.88)
-            const lx = px + Math.cos(a) * r
-            const ly = py + Math.sin(a) * r
-            const rw = 5.5 + rand() * 5.5
-            const rh = 4.0 + rand() * 4.5
-            ctx.save()
-            ctx.translate(lx, ly)
-            ctx.rotate(rand() * Math.PI * 2)
-            ctx.fillStyle = midColors[Math.floor(rand() * midColors.length)]
-            ctx.beginPath()
-            ctx.ellipse(0, 0, rw, rh, 0, 0, Math.PI * 2)
-            ctx.fill()
-            ctx.restore()
-        }
-    }
-
-    const topColors = ['#396927', '#43752d', '#4d8033', '#588b39']
-    for (let p = 0; p < puffs.length; p++) {
-        const [px, py, pr] = puffs[p]
-        for (let i = 0; i < 42; i++) {
-            const a = rand() * Math.PI * 2
-            const r = Math.pow(rand(), 0.75) * (pr * 0.7)
-            const lx = px - 3 + Math.cos(a) * r
-            const ly = py - 3 + Math.sin(a) * r
-            const rw = 3.8 + rand() * 4.2
-            const rh = 2.8 + rand() * 3.2
-            ctx.save()
-            ctx.translate(lx, ly)
-            ctx.rotate(rand() * Math.PI * 2)
-            ctx.fillStyle = topColors[Math.floor(rand() * topColors.length)]
-            ctx.beginPath()
-            ctx.ellipse(0, 0, rw, rh, 0, 0, Math.PI * 2)
-            ctx.fill()
-            ctx.restore()
-        }
-    }
-
-    const texture = new THREE.CanvasTexture(canvas)
-    texture.colorSpace = THREE.SRGBColorSpace
-    texture.anisotropy = 8
-    return texture
-}

@@ -289,7 +289,13 @@ export function createInfinitsSignage() {
     group.add(lettersGroup)
 
     const lampMat = new THREE.MeshStandardMaterial({ color: 0x1a1c20, roughness: 0.45, metalness: 0.6 })
-    const lampGlassMat = new THREE.MeshStandardMaterial({ color: 0xdbe4ee, roughness: 0.2, metalness: 0.8 })
+    const lampGlassMat = new THREE.MeshStandardMaterial({
+        color: 0xdbe4ee,
+        roughness: 0.2,
+        metalness: 0.1,
+        emissive: 0xffe2b0,
+        emissiveIntensity: 2.5
+    })
     for (let lx = -4.8; lx <= 4.8; lx += 1.35) {
         const lampGroup = new THREE.Group()
         lampGroup.position.set(lx, 0.03, 0.34)
@@ -303,6 +309,12 @@ export function createInfinitsSignage() {
         lens.rotation.x = 0.38 + Math.PI
         lampGroup.add(bracket, head, lens)
         group.add(lampGroup)
+
+        // uplight washing the letters behind the lamp (no shadows: 8 shadow maps is too costly)
+        const spot = new THREE.SpotLight(0xffe2b0, 6, 4, 0.75, 0.7, 2)
+        spot.position.set(lx, 0.14, 0.3)
+        spot.target.position.set(lx, 0.95, -0.11)
+        group.add(spot, spot.target)
     }
 
     const plaqueShape = new THREE.Shape()
@@ -414,6 +426,27 @@ export function createInfinitsSignage() {
         0.036,
         0.12
     )
+
+    // backlight: glowing halo in the gap between plaque and wall, plus a light washing the wall
+    const haloGeo = new THREE.ShapeGeometry(plaqueShape, 36)
+    haloGeo.translate(-2.35, -0.86, 0)
+    haloGeo.scale(1.05, 1.13, 1)
+    haloGeo.translate(2.35, 0.86, 0)
+    const haloMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(0xffd9a0).multiplyScalar(2.2),
+        transparent: true,
+        opacity: 0.85,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+        toneMapped: false
+    })
+    const halo = new THREE.Mesh(haloGeo, haloMat)
+    halo.position.z = -0.03
+    plaqueGroup.add(halo)
+    const backLight = new THREE.PointLight(0xffd9a0, 2.5, 3, 2)
+    backLight.position.set(2.35, 0.86, -0.025)
+    plaqueGroup.add(backLight)
 
     plaqueGroup.position.set(2.25, -1.32, 0.62)
     group.add(plaqueGroup)

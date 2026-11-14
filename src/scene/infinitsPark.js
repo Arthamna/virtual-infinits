@@ -11,9 +11,9 @@ import { createPlazaRailings } from './railings'
 import { createParkLake } from './lake'
 import { createParkPaths } from './paths'
 import { createParkGrass } from './grass'
-import { createRealisticParkTrees } from './trees'
+import { createPathLamps } from './lamps'
 
-export function createInfinitsParkScene(sunDirection) {
+export function createInfinitsParkScene() {
     const group = new THREE.Group()
 
     const concreteMat = new THREE.MeshStandardMaterial({
@@ -25,10 +25,10 @@ export function createInfinitsParkScene(sunDirection) {
     })
 
     const grassTex = createGrassTexture()
-    grassTex.repeat.set(0.2, 0.2)
+    grassTex.repeat.set(0.25, 0.25)
     const grassMat = new THREE.MeshStandardMaterial({
         map: grassTex,
-        color: 0x92b070,
+        color: 0xe2ecd2,
         roughness: 0.95,
         metalness: 0.0
     })
@@ -58,7 +58,7 @@ export function createInfinitsParkScene(sunDirection) {
     totem.position.set(10.1, 0.48, -1.6)
     group.add(totem)
 
-    const lake = createParkLake(sunDirection, grassTex)
+    const lake = createParkLake(grassTex)
     group.add(lake.group)
 
     const perimW = 3.5
@@ -90,23 +90,37 @@ export function createInfinitsParkScene(sunDirection) {
     })
     group.add(paths.group)
 
+    const lamps = createPathLamps({ leftEdge: paths.leftEdge, rightEdge: paths.rightEdge, curbW: 0.16 })
+    group.add(lamps.group)
+
     const grass = createParkGrass({
         grassMat,
         lakeCutoutPath: lake.lakeCutoutPath,
         lakeParams: lake.lakeParams,
         curveSamples: paths.curveSamples,
+        pathHalfWidth: plaza.pathParams.rampWidth / 2 + 0.16,
+        plazaGroup: plaza.group,
         perimeterBounds
     })
     group.add(grass.group)
 
-    const treesGroup = createRealisticParkTrees()
-    group.add(treesGroup)
 
     return {
         group,
+        walk: {
+            walkables: [plaza.group, paths.walkwayMesh],
+            obstacles: [railingsGroup, signage, totem, lamps.group],
+            start: paths.curveSamples[16].pt.clone(),
+            startDir: paths.curveSamples[16].tan.clone()
+        },
         update(elapsed = 0) {
-            lake.lakeWater.material.uniforms['time'].value = elapsed * 0.35
             grass.grassWindUniforms.uTime.value = elapsed
+        },
+        setWind(strength) {
+            grass.grassWindUniforms.uWind.value = strength
+        },
+        setLampGlow(v) {
+            lamps.setGlow(v)
         }
     }
 }

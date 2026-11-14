@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { createConcreteTexture } from './textures'
+import { createConcreteTexture, createPavingTexture } from './textures'
 
 export function createParkPaths({
     walkwayMat,
@@ -118,13 +118,13 @@ export function createParkPaths({
     const rightHalfW = rampWidth / 2
     const leftHalfW = innerRampWidth / 2
     const curbW = 0.16
-    const curbExtraH = 0.055
+    const curbExtraH = 0.09
     const lpPos = []
     const lpUV = []
     const lpIdx = []
-    const cbPos = []
-    const cbUV = []
-    const cbIdx = []
+    // per-sample path edges, used for the curb blocks and the lamps
+    const leftEdge = []
+    const rightEdge = []
 
     for (let i = 0; i < curveSamples.length; i++) {
         const { pt, tan, taper } = curveSamples[i]
@@ -157,6 +157,8 @@ export function createParkPaths({
         const endBaseY = i === 0 ? 0.0 : 0.02 * taper
         const topY = endBaseY * (1 - midFactor) + 0.075 * midFactor
         const curbTopY = topY + curbExtraH * midFactor
+        leftEdge.push({ x: lx, z: lz, nx, nz, y: curbTopY })
+        rightEdge.push({ x: rx, z: rz, nx: -nx, nz: -nz, y: curbTopY })
 
         lpPos.push(
             lx, topY, lz,
@@ -171,48 +173,13 @@ export function createParkPaths({
             rx * 0.22, rz * 0.22
         )
 
-        const lox = lx + nx * curbW
-        const loz = lz + nz * curbW
-        const rox = rx - nx * curbW
-        const roz = rz - nz * curbW
-        cbPos.push(
-            lx, curbTopY, lz,
-            lox, curbTopY, loz,
-            lx, -0.04, lz,
-            lox, -0.04, loz,
-            rx, curbTopY, rz,
-            rox, curbTopY, roz,
-            rx, -0.04, rz,
-            rox, -0.04, roz
-        )
-        cbUV.push(
-            lx * 0.35, lz * 0.35,
-            lox * 0.35, loz * 0.35,
-            lx * 0.35, lz * 0.35,
-            lox * 0.35, loz * 0.35,
-            rx * 0.35, rz * 0.35,
-            rox * 0.35, roz * 0.35,
-            rx * 0.35, rz * 0.35,
-            rox * 0.35, roz * 0.35
-        )
-
         if (i < curveSamples.length - 1) {
             const b = i * 4
             const n = (i + 1) * 4
             lpIdx.push(
-                b + 0, n + 0, b + 1, b + 1, n + 0, n + 1,
+                b + 0, b + 1, n + 0, b + 1, n + 1, n + 0,
                 b + 0, b + 2, n + 0, n + 0, b + 2, n + 2,
                 b + 1, n + 1, b + 3, b + 3, n + 1, n + 3
-            )
-            const cb = i * 8
-            const cn = (i + 1) * 8
-            cbIdx.push(
-                cb + 0, cb + 1, cn + 0, cb + 1, cn + 1, cn + 0,
-                cb + 0, cn + 0, cb + 2, cn + 0, cn + 2, cb + 2,
-                cb + 1, cb + 3, cn + 1, cb + 3, cn + 3, cn + 1,
-                cb + 4, cn + 4, cb + 5, cb + 5, cn + 4, cn + 5,
-                cb + 4, cb + 6, cn + 4, cb + 4, cb + 6, cn + 6,
-                cb + 5, cn + 5, cb + 7, cb + 5, cn + 7, cb + 7
             )
         }
     }
@@ -221,8 +188,15 @@ export function createParkPaths({
     fullWalkwayGeo.setAttribute('position', new THREE.Float32BufferAttribute(lpPos, 3))
     fullWalkwayGeo.setAttribute('uv', new THREE.Float32BufferAttribute(lpUV, 2))
     fullWalkwayGeo.setIndex(lpIdx)
-    fullWalkwayGeo.computeVertexNormals()
-    const fullWalkwayMesh = new THREE.Mesh(fullWalkwayGeo, walkwayMat)
+    const lakePathMat = new THREE.MeshStandardMaterial({
+        map: createPavingTexture(3, 3, true),
+        roughness: 0.88,
+        metalness: 0.03
+    })
+    // top and side faces share vertices; split them so the top gets a flat up normal instead of a blended one
+    const flatWalkwayGeo = fullWalkwayGeo.toNonIndexed()
+    flatWalkwayGeo.computeVertexNormals()
+    const fullWalkwayMesh = new THREE.Mesh(flatWalkwayGeo, lakePathMat)
     fullWalkwayMesh.castShadow = true
     fullWalkwayMesh.receiveShadow = true
     group.add(fullWalkwayMesh)
@@ -233,15 +207,54 @@ export function createParkPaths({
         roughness: 0.9,
         metalness: 0.03
     })
-    const curbGeo = new THREE.BufferGeometry()
-    curbGeo.setAttribute('position', new THREE.Float32BufferAttribute(cbPos, 3))
-    curbGeo.setAttribute('uv', new THREE.Float32BufferAttribute(cbUV, 2))
-    curbGeo.setIndex(cbIdx)
-    curbGeo.computeVertexNormals()
-    const curbMesh = new THREE.Mesh(curbGeo, curbMat)
-    curbMesh.castShadow = true
-    curbMesh.receiveShadow = true
-    group.add(curbMesh)
+    // curb = separate precast blocks of uneven length with hairline gaps and slight settling, like the real path
+    let cSeed = 2024
+    const cRand = () => {
+        cSeed = (cSeed * 1664525 + 1013904223) >>> 0
+        return cSeed / 4294967296
+    }
+    const curbBlocks = []
+    for (const edge of [leftEdge, rightEdge]) {
+        const dist = [0]
+        for (let i = 1; i < edge.length; i++) {
+            dist.push(dist[i - 1] + Math.hypot(edge[i].x - edge[i - 1].x, edge[i].z - edge[i - 1].z))
+        }
+        const at = (d) => {
+            let i = 1
+            while (i < dist.length - 1 && dist[i] < d) i++
+            const t = THREE.MathUtils.clamp((d - dist[i - 1]) / (dist[i] - dist[i - 1] || 1), 0, 1)
+            const a = edge[i - 1]
+            const b = edge[i]
+            return {
+                x: a.x + (b.x - a.x) * t + (a.nx + (b.nx - a.nx) * t) * curbW * 0.5,
+                z: a.z + (b.z - a.z) * t + (a.nz + (b.nz - a.nz) * t) * curbW * 0.5,
+                y: a.y + (b.y - a.y) * t
+            }
+        }
+        const total = dist[dist.length - 1]
+        let d = 0
+        while (d < total - 0.05) {
+            const len = Math.min(0.7 + cRand() * 0.8, total - d)
+            const p0 = at(d)
+            const p1 = at(d + len - 0.025)
+            curbBlocks.push({ p0, p1, jitterY: (cRand() - 0.5) * 0.025, tilt: (cRand() - 0.5) * 0.03 })
+            d += len
+        }
+    }
+    const curbInst = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), curbMat, curbBlocks.length)
+    const cDummy = new THREE.Object3D()
+    curbBlocks.forEach(({ p0, p1, jitterY, tilt }, i) => {
+        const top = (p0.y + p1.y) / 2 + jitterY
+        const bottom = -0.06
+        cDummy.position.set((p0.x + p1.x) / 2, (top + bottom) / 2, (p0.z + p1.z) / 2)
+        cDummy.rotation.set(0, -Math.atan2(p1.z - p0.z, p1.x - p0.x), tilt, 'YXZ')
+        cDummy.scale.set(Math.hypot(p1.x - p0.x, p1.z - p0.z), top - bottom, curbW)
+        cDummy.updateMatrix()
+        curbInst.setMatrixAt(i, cDummy.matrix)
+    })
+    curbInst.castShadow = true
+    curbInst.receiveShadow = true
+    group.add(curbInst)
 
     const {
         perimH,
@@ -303,5 +316,5 @@ export function createParkPaths({
     perimMesh.receiveShadow = true
     group.add(perimMesh)
 
-    return { group, curveSamples }
+    return { group, curveSamples, leftEdge, rightEdge, walkwayMesh: fullWalkwayMesh }
 }
