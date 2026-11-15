@@ -190,5 +190,5 @@ export function createParkGrass({
     if (grassBlades.instanceColor) grassBlades.instanceColor.needsUpdate = true
     group.add(grassBlades)
 
-    return { group, grassWindUniforms }
+    return { group, grassWindUniforms, isBlocked: isBlockedGrassPos }
 }

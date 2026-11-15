@@ -11,7 +11,9 @@ import { createPlazaRailings } from './railings'
 import { createParkLake } from './lake'
 import { createParkPaths } from './paths'
 import { createParkGrass } from './grass'
-import { createPathLamps } from './lamps'
+import { createPathLamps, createPlazaLampPosts } from './lamps'
+import { createBackdrop } from './backdrop'
+import { createVegetation } from './vegetation'
 
 export function createInfinitsParkScene() {
     const group = new THREE.Group()
@@ -82,6 +84,9 @@ export function createInfinitsParkScene() {
         outerCornerR: innerCornerR + perimW
     }
 
+    const backdrop = createBackdrop(perimeterBounds)
+    group.add(backdrop.group)
+
     const paths = createParkPaths({
         walkwayMat,
         lakeParams: lake.lakeParams,
@@ -92,6 +97,15 @@ export function createInfinitsParkScene() {
 
     const lamps = createPathLamps({ leftEdge: paths.leftEdge, rightEdge: paths.rightEdge, curbW: 0.16 })
     group.add(lamps.group)
+
+    // the four double-arm lamp posts on the plaza (y = plaza deck height)
+    const lampPosts = createPlazaLampPosts([
+        { x: -23.5, y: 0.48, z: -3.9, yaw: Math.PI / 2 },
+        { x: -8.7, y: 0.48, z: -2.6, yaw: Math.PI / 2 },
+        { x: 8.7, y: 0.48, z: -2.4, yaw: Math.PI / 2 },
+        { x: 33.6, y: 0.48, z: -0.8, yaw: Math.PI / 2 }
+    ])
+    group.add(lampPosts.group)
 
     const grass = createParkGrass({
         grassMat,
@@ -104,12 +118,20 @@ export function createInfinitsParkScene() {
     })
     group.add(grass.group)
 
+    const vegetation = createVegetation({
+        isBlocked: grass.isBlocked,
+        lampPositions: lamps.positions,
+        pathEdges: [paths.leftEdge, paths.rightEdge]
+    })
+    group.add(vegetation)
+
 
     return {
         group,
+        vegetation,
         walk: {
             walkables: [plaza.group, paths.walkwayMesh],
-            obstacles: [railingsGroup, signage, totem, lamps.group],
+            obstacles: [railingsGroup, signage, totem, lamps.group, lampPosts.group],
             start: paths.curveSamples[16].pt.clone(),
             startDir: paths.curveSamples[16].tan.clone()
         },
@@ -121,6 +143,7 @@ export function createInfinitsParkScene() {
         },
         setLampGlow(v) {
             lamps.setGlow(v)
+            lampPosts.setGlow(v)
         }
     }
 }

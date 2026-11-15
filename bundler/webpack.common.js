@@ -16,7 +16,9 @@ module.exports = {
     [
         new CopyWebpackPlugin({
             patterns: [
-                { from: path.resolve(__dirname, '../static') }
+                { from: path.resolve(__dirname, '../static') },
+                // tree/bush models live in /3d next to the .blend sources
+                { from: path.resolve(__dirname, '../3d'), to: 'models/3d', globOptions: { ignore: ['**/*.blend'] } }
             ]
         }),
         new HtmlWebpackPlugin({

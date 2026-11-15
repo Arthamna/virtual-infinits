@@ -27,6 +27,9 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping
 renderer.toneMappingExposure = 0.52
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
+// the scene is static apart from grass sway, so redraw the shadow map only when the sun or the trees change
+renderer.shadowMap.autoUpdate = false
+renderer.shadowMap.needsUpdate = true
 container.appendChild(renderer.domElement)
 
 const camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 0.2, 10000)
@@ -45,9 +48,19 @@ skyUniforms['mieCoefficient'].value = 0.003
 // tighter sun halo so the glow doesn't flood half the screen
 skyUniforms['mieDirectionalG'].value = 0.8
 skyUniforms['showSunDisc'].value = 0
-skyUniforms['cloudCoverage'].value = 0.55
-skyUniforms['cloudDensity'].value = 0.55
-skyUniforms['cloudElevation'].value = 0.6
+// soft highlight roll-off on the sky: luminance above 1 (the glow around the sun) is compressed,
+// everything below stays untouched, so the sun stays bright without a clipped white blob
+sky.material.fragmentShader = sky.material.fragmentShader.replace(
+    'gl_FragColor = vec4( texColor, 1.0 );',
+    `float skyLum = dot( texColor, vec3( 0.2126, 0.7152, 0.0722 ) );
+    texColor /= 1.0 + 0.6 * max( skyLum - 1.0, 0.0 );
+    gl_FragColor = vec4( texColor, 1.0 );`
+)
+// smaller, denser puffs read more like cumulus than the default streaky layer
+skyUniforms['cloudScale'].value = 0.00035
+skyUniforms['cloudCoverage'].value = 0.45
+skyUniforms['cloudDensity'].value = 0.8
+skyUniforms['cloudElevation'].value = 0.45
 
 const pmremGenerator = new THREE.PMREMGenerator(renderer)
 let envRenderTarget = null
@@ -105,9 +118,14 @@ function applyTimeOfDay(hour) {
     scene.fog.color.lerpColors(lowFogColor, highFogColor, high)
 
     // calm morning, gusty mid-afternoon, settling toward evening
+    renderer.shadowMap.needsUpdate = true
     park.setWind(0.5 + 1.3 * Math.exp(-(((hour - 14) / 3) ** 2)))
     park.setLampGlow(0.15 + 2.6 * (1 - high) ** 2) // lamps barely visible at noon, glowing toward dusk
 }
+
+park.vegetation.addEventListener('loaded', () => {
+    renderer.shadowMap.needsUpdate = true
+})
 
 const timeOfDay = { hour: 17.5 } // matches the previous fixed orange afternoon sun
 applyTimeOfDay(timeOfDay.hour)
@@ -124,6 +142,51 @@ gui.add(viewState, 'mode', { 'God (orbit / pan)': 'god', 'Walk (path + plaza)': 
     .name('Camera mode')
     .onChange(setViewMode)
 
+// 4K still from the same angle as the reference photo: standing in front of the plaza steps,
+// left of centre, looking across at the sign. The live view is restored afterwards.
+function takePhoto() {
+    const w = 3840
+    const h = 2160
+    const saved = {
+        pos: camera.position.clone(),
+        quat: camera.quaternion.clone(),
+        fov: camera.fov,
+        aspect: camera.aspect,
+        pixelRatio: renderer.getPixelRatio(),
+        controls: controls.enabled
+    }
+    controls.enabled = false
+    camera.position.set(-7.5, 1.6, 6.5)
+    camera.lookAt(1.5, 1.9, -2.4)
+    camera.fov = 55
+    camera.aspect = w / h
+    camera.updateProjectionMatrix()
+    renderer.setPixelRatio(1)
+    renderer.setSize(w, h, false) // false: keep the on-page canvas size, only the buffer grows
+    composer.setPixelRatio(1)
+    composer.setSize(w, h)
+    composer.render()
+    renderer.domElement.toBlob((blob) => {
+        const link = document.createElement('a')
+        link.href = URL.createObjectURL(blob)
+        link.download = 'infinits-park-4k.png'
+        link.click()
+        URL.revokeObjectURL(link.href)
+    }, 'image/png')
+
+    camera.position.copy(saved.pos)
+    camera.quaternion.copy(saved.quat)
+    camera.fov = saved.fov
+    camera.aspect = saved.aspect
+    camera.updateProjectionMatrix()
+    renderer.setPixelRatio(saved.pixelRatio)
+    renderer.setSize(window.innerWidth, window.innerHeight)
+    composer.setPixelRatio(saved.pixelRatio)
+    composer.setSize(window.innerWidth, window.innerHeight)
+    controls.enabled = saved.controls
+}
+gui.add({ takePhoto }, 'takePhoto').name('Take 4K photo')
+
 // MSAA target: the composer otherwise drops the canvas antialiasing
 const composer = new EffectComposer(
     renderer,
@@ -132,6 +195,18 @@ const composer = new EffectComposer(
 composer.addPass(new RenderPass(scene, camera))
 const aoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight)
 aoPass.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1, scale: 1.2 })
+// alpha-tested leaves (userData.noAO) would be drawn as solid quads in GTAO's normal/depth pass
+// and smear AO squares onto the sky. shortcut: patches a private GTAOPass method, recheck on three upgrades
+const hideFromAO = aoPass._overrideVisibility.bind(aoPass)
+aoPass._overrideVisibility = function () {
+    hideFromAO()
+    scene.traverse((o) => {
+        if (o.userData.noAO && o.visible) {
+            o.visible = false
+            this._visibilityCache.push(o)
+        }
+    })
+}
 composer.addPass(aoPass)
 composer.addPass(new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.12, 0.4, 0.95))
 composer.addPass(new OutputPass())

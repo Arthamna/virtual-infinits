@@ -104,3 +104,60 @@ export function createPathLamps({ leftEdge, rightEdge, curbW, spacing = 5 }) {
         }
     }
 }
+
+// Tall double-arm street lamp post (grey pole, two upturned arms with flat LED heads), like the ones on the plaza
+export function createPlazaLampPosts(spots) {
+    const group = new THREE.Group()
+    const poleH = 10
+    const metalMat = new THREE.MeshStandardMaterial({ color: 0xb7bcc2, roughness: 0.4, metalness: 0.7 })
+    const headMat = new THREE.MeshStandardMaterial({
+        color: 0x5c6066,
+        roughness: 0.5,
+        metalness: 0.5,
+        emissive: 0xfff2dc,
+        emissiveIntensity: 0
+    })
+    const baseMat = new THREE.MeshStandardMaterial({ map: createConcreteTexture(1, 1), color: 0x9a9a98, roughness: 0.95 })
+
+    const pole = new THREE.CylinderGeometry(0.08, 0.13, poleH, 12)
+    pole.translate(0, poleH / 2, 0)
+    const base = new THREE.CylinderGeometry(0.22, 0.26, 0.35, 12)
+    base.translate(0, 0.175, 0)
+    // each arm rises from the pole top and bends outward, ending slightly upturned
+    const arms = []
+    const heads = []
+    for (const dir of [-1, 1]) {
+        const curve = new THREE.CubicBezierCurve3(
+            new THREE.Vector3(0, poleH - 0.6, 0),
+            new THREE.Vector3(dir * 0.2, poleH + 0.1, 0),
+            new THREE.Vector3(dir * 1.2, poleH + 0.35, 0),
+            new THREE.Vector3(dir * 2.4, poleH + 0.45, 0)
+        )
+        arms.push(new THREE.TubeGeometry(curve, 16, 0.045, 8, false))
+        const head = new THREE.BoxGeometry(0.75, 0.08, 0.28)
+        head.rotateZ(dir * 0.08)
+        head.translate(dir * 2.65, poleH + 0.45, 0)
+        heads.push(head)
+    }
+
+    for (const { x, y, z, yaw = 0 } of spots) {
+        const post = new THREE.Group()
+        post.position.set(x, y, z)
+        post.rotation.y = yaw
+        post.add(new THREE.Mesh(base, baseMat), new THREE.Mesh(pole, metalMat))
+        for (const g of arms) post.add(new THREE.Mesh(g, metalMat))
+        for (const g of heads) post.add(new THREE.Mesh(g, headMat))
+        post.traverse((o) => {
+            o.castShadow = true
+            o.receiveShadow = true
+        })
+        group.add(post)
+    }
+
+    return {
+        group,
+        setGlow(v) {
+            headMat.emissiveIntensity = v
+        }
+    }
+}
