@@ -1,10 +1,4 @@
 import * as THREE from 'three'
-import {
-    createTotemWhiteTexture,
-    createTotemWhiteBumpTexture,
-    createTotemBlueTexture,
-    createTotemUrlTexture
-} from './textures'
 import { createPlaqueLetterMaterials, add3DTextTokens } from './plaqueGlyphs'
 
 const EXTRUDE_SETTINGS = {
@@ -454,199 +448,153 @@ export function createInfinitsSignage() {
     return group
 }
 
+// Raised lettering: canvas text used as a cut-out on 5 stacked layers (grey sides, white face),
+// so it reads as extruded letters from an angle. lines: [{ text, x, y (baseline), size }] in metres.
+function createRaisedText(lines, w, h, { depth = 0.03, face = 0xffffff, side = 0x8a919d } = {}) {
+    const ppm = 900 // canvas pixels per metre
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.ceil(w * ppm)
+    canvas.height = Math.ceil(h * ppm)
+    const ctx = canvas.getContext('2d')
+    ctx.fillStyle = '#fff'
+    ctx.strokeStyle = '#fff'
+    ctx.lineJoin = 'round'
+    // black-weight look like the real sign: heavy font, plus an outline stroke in case it isn't installed
+    const fontAt = (size) => `900 ${size * ppm}px "Arial Black", Arial, Helvetica, sans-serif`
+    // installed fonts differ in width: shrink the whole block evenly if any line would run off the panel
+    let fit = 1
+    for (const { text, x, size } of lines) {
+        ctx.font = fontAt(size)
+        fit = Math.min(fit, ((w - x - 0.05) * ppm) / (ctx.measureText(text).width + size * ppm * 0.07))
+    }
+    for (const { text, x, y, size: baseSize } of lines) {
+        const size = baseSize * fit
+        ctx.font = fontAt(size)
+        ctx.lineWidth = size * ppm * 0.07
+        ctx.fillText(text, x * ppm, (h - y) * ppm)
+        ctx.strokeText(text, x * ppm, (h - y) * ppm)
+    }
+    const tex = new THREE.CanvasTexture(canvas)
+    tex.colorSpace = THREE.SRGBColorSpace
+    tex.anisotropy = 8
+    const group = new THREE.Group()
+    const layers = 5
+    for (let i = 0; i < layers; i++) {
+        const mat = new THREE.MeshStandardMaterial({
+            map: tex,
+            alphaTest: 0.5,
+            color: i === layers - 1 ? face : side,
+            roughness: 0.5
+        })
+        const plane = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat)
+        plane.position.set(w / 2, h / 2, (i / (layers - 1)) * depth)
+        plane.castShadow = i === layers - 1
+        plane.userData.noAO = true // alpha-tested: keep out of GTAO's solid-quad depth pass
+        group.add(plane)
+    }
+    return group
+}
+
+// rounded "diagonal top" panel: flat bottom, top runs from height hL (left) to hR (right)
+function diagonalPanelShape(w, hL, hR, r = 0.1) {
+    const slope = (hR - hL) / w
+    const s = new THREE.Shape()
+    s.moveTo(0, 0)
+    s.lineTo(w, 0)
+    s.lineTo(w, hR - r)
+    s.quadraticCurveTo(w, hR, w - r, hR - r * slope)
+    s.lineTo(r, hL + r * slope)
+    s.quadraticCurveTo(0, hL, 0, hL - r)
+    s.closePath()
+    return s
+}
+
+// ITS Tekno Sains direction pylon, modelled on the reference photo: white back slab, a blue front slab
+// shifted left (white edge layer showing between them), two blue strips below it, raised white labels,
+// on a painted blue concrete block.
 export function createTeknoSainsTotem() {
     const group = new THREE.Group()
-
-    const normalizeUVs = (geo, w, h) => {
-        const pos = geo.attributes.position
-        const uvs = new Float32Array(pos.count * 2)
-        for (let i = 0; i < pos.count; i++) {
-            uvs[i * 2] = pos.getX(i) / w
-            uvs[i * 2 + 1] = pos.getY(i) / h
-        }
-        geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+    const extrude = (shape, depth) =>
+        new THREE.ExtrudeGeometry(shape, {
+            depth,
+            bevelEnabled: true,
+            bevelThickness: 0.01,
+            bevelSize: 0.01,
+            bevelSegments: 2,
+            curveSegments: 16
+        })
+    const add = (geo, mat, x, y, z) => {
+        const m = new THREE.Mesh(geo, mat)
+        m.position.set(x, y, z)
+        m.castShadow = true
+        m.receiveShadow = true
+        group.add(m)
+        return m
     }
 
-    const blueBaseMat = new THREE.MeshStandardMaterial({
-        color: 0x073f94,
-        roughness: 0.45,
-        metalness: 0.18,
-        envMapIntensity: 0.4
-    })
-    const plinthBottom = new THREE.Mesh(new THREE.BoxGeometry(1.36, 0.12, 0.4), blueBaseMat)
-    plinthBottom.position.set(0.5, 0.06, 0.08)
-    plinthBottom.castShadow = true
-    plinthBottom.receiveShadow = true
-    group.add(plinthBottom)
+    const plinthMat = new THREE.MeshStandardMaterial({ color: 0x2f6fdc, roughness: 0.9 })
+    const whiteMat = new THREE.MeshStandardMaterial({ color: 0xeef0f2, roughness: 0.55, metalness: 0.03 })
+    const blueMat = new THREE.MeshStandardMaterial({ color: 0x1f5fd0, roughness: 0.42, metalness: 0.1, envMapIntensity: 0.4 })
 
-    const plinthTop = new THREE.Mesh(new THREE.BoxGeometry(1.26, 0.1, 0.34), blueBaseMat)
-    plinthTop.position.set(0.5, 0.17, 0.08)
-    plinthTop.castShadow = true
-    plinthTop.receiveShadow = true
-    group.add(plinthTop)
+    // painted concrete block
+    const plinthH = 0.26
+    add(new THREE.BoxGeometry(1.42, plinthH, 0.46), plinthMat, 0.5, plinthH / 2, 0)
 
+    // white back slab, z -0.07..0.07 (+bevel)
     const whiteW = 1.12
-    const whiteH = 3.35
-    const whiteShape = new THREE.Shape()
-    whiteShape.moveTo(0, 0)
-    whiteShape.lineTo(whiteW, 0)
-    whiteShape.lineTo(whiteW, whiteH - 0.12)
-    whiteShape.quadraticCurveTo(whiteW, whiteH, whiteW - 0.14, whiteH - 0.04)
-    whiteShape.lineTo(0.12, 2.62)
-    whiteShape.quadraticCurveTo(0, 2.56, 0, 2.42)
-    whiteShape.closePath()
+    add(extrude(diagonalPanelShape(whiteW, 2.78, 3.1, 0.12), 0.14), whiteMat, 0, plinthH, -0.07)
 
-    const whiteBodyGeo = new THREE.ExtrudeGeometry(whiteShape, {
-        depth: 0.16,
-        bevelEnabled: true,
-        bevelThickness: 0.015,
-        bevelSize: 0.015,
-        bevelSegments: 2,
-        curveSegments: 16
-    })
-    const whiteBodyMat = new THREE.MeshStandardMaterial({
-        color: 0xdce0e4,
-        roughness: 0.58,
-        metalness: 0.05,
-        envMapIntensity: 0.3
-    })
-    const whiteBody = new THREE.Mesh(whiteBodyGeo, whiteBodyMat)
-    whiteBody.position.set(-0.04, 0.22, -0.02)
-    whiteBody.castShadow = true
-    whiteBody.receiveShadow = true
-    group.add(whiteBody)
-
-    const whiteFaceGeo = new THREE.ShapeGeometry(whiteShape, 16)
-    normalizeUVs(whiteFaceGeo, whiteW, whiteH)
-    const whiteFaceMat = new THREE.MeshStandardMaterial({
-        map: createTotemWhiteTexture(),
-        bumpMap: createTotemWhiteBumpTexture(),
-        bumpScale: 0.055,
-        roughness: 0.58,
-        metalness: 0.04,
-        envMapIntensity: 0.25
-    })
-    const whiteFace = new THREE.Mesh(whiteFaceGeo, whiteFaceMat)
-    whiteFace.position.set(-0.04, 0.22, 0.156)
-    whiteFace.receiveShadow = true
-    group.add(whiteFace)
-
-    const blueW = 0.96
-    const blueX = 0.01
-    const blueFrontZ = 0.11
-    const blueBackZ = -0.105
-
-    const urlBandMat = new THREE.MeshStandardMaterial({
-        map: createTotemUrlTexture(),
-        roughness: 0.45,
-        metalness: 0.12,
-        envMapIntensity: 0.35
-    })
-
-    const blueH = 1.66
-    const blueShape = new THREE.Shape()
-    blueShape.moveTo(0, 0)
-    blueShape.lineTo(blueW, 0)
-    blueShape.lineTo(blueW, 0.96)
-    blueShape.quadraticCurveTo(blueW, 1.08, blueW - 0.1, 1.14)
-    blueShape.lineTo(0.14, blueH)
-    blueShape.quadraticCurveTo(0, blueH + 0.05, 0, blueH - 0.1)
-    blueShape.closePath()
-
-    const blueBodyGeo = new THREE.ExtrudeGeometry(blueShape, {
-        depth: 0.085,
-        bevelEnabled: true,
-        bevelThickness: 0.012,
-        bevelSize: 0.012,
-        bevelSegments: 2,
-        curveSegments: 16
-    })
-
-    const blueFaceGeo = new THREE.ShapeGeometry(blueShape, 16)
-    normalizeUVs(blueFaceGeo, blueW, blueH)
-    const blueFaceMat = new THREE.MeshStandardMaterial({
-        map: createTotemBlueTexture(),
-        roughness: 0.45,
-        metalness: 0.12,
-        envMapIntensity: 0.35
-    })
-
-    ;[blueFrontZ, blueBackZ].forEach((zPos, idx) => {
-        const isFront = idx === 0
-
-        const bottomBand = new THREE.Mesh(new THREE.BoxGeometry(blueW, 0.2, 0.1), blueBaseMat)
-        bottomBand.position.set(blueX + blueW / 2, 0.32, zPos + 0.05)
-        bottomBand.castShadow = true
-        bottomBand.receiveShadow = true
-        group.add(bottomBand)
-
-        const urlBandGeo = new THREE.BoxGeometry(blueW, 0.21, 0.1)
-        const urlBand = new THREE.Mesh(urlBandGeo, [
-            blueBaseMat,
-            blueBaseMat,
-            blueBaseMat,
-            blueBaseMat,
-            isFront ? urlBandMat : blueBaseMat,
-            isFront ? blueBaseMat : urlBandMat
-        ])
-        urlBand.position.set(blueX + blueW / 2, 0.56, zPos + 0.05)
-        urlBand.castShadow = true
-        urlBand.receiveShadow = true
-        group.add(urlBand)
-
-        const blueBody = new THREE.Mesh(blueBodyGeo, blueBaseMat)
-        blueBody.position.set(blueX, 0.7, zPos)
-        blueBody.castShadow = true
-        blueBody.receiveShadow = true
-        group.add(blueBody)
-
-        if (isFront) {
-            const blueFace = new THREE.Mesh(blueFaceGeo, blueFaceMat)
-            blueFace.position.set(blueX, 0.7, zPos + 0.098)
-            blueFace.receiveShadow = true
-            group.add(blueFace)
+    // blue front assembly (both faces), shifted left past the white slab, on a thin white edge layer
+    const blueX = -0.12
+    const blueW = 1.1
+    const mainY = 0.56 // main panel bottom, above the plinth
+    const mainShape = diagonalPanelShape(blueW, 1.96, 1.03)
+    const stripShape = new THREE.Shape()
+    stripShape.moveTo(0, 0)
+    stripShape.lineTo(blueW, 0)
+    stripShape.lineTo(blueW, 0.24)
+    stripShape.lineTo(0, 0.24)
+    stripShape.closePath()
+    const pieces = [
+        [mainShape, mainY],
+        [stripShape, 0.28], // url strip
+        [stripShape, 0] // bottom strip
+    ]
+    for (const sign of [1, -1]) {
+        const zFace = 0.085 * sign
+        for (const [shape, y] of pieces) {
+            // white edge layer then blue slab, stacked outward from the white slab's face
+            add(extrude(shape, 0.03), whiteMat, blueX, plinthH + y, sign > 0 ? zFace : zFace - 0.03)
+            add(extrude(shape, 0.05), blueMat, blueX, plinthH + y, sign > 0 ? zFace + 0.03 : zFace - 0.08)
         }
-    })
+    }
+    const frontZ = 0.085 + 0.03 + 0.05 + 0.012 // blue slab face (+bevel)
 
+    // raised white labels on the main blue panel and the url strip
+    const labels = createRaisedText(
+        [
+            { text: 'Jogging Track', x: 0.09, y: 0.76, size: 0.118 },
+            { text: 'Amphiteather', x: 0.09, y: 0.54, size: 0.118 },
+            { text: 'Plaza', x: 0.09, y: 0.33, size: 0.118 },
+            { text: 'Dock', x: 0.09, y: 0.12, size: 0.118 }
+        ],
+        blueW,
+        1.2
+    )
+    labels.position.set(blueX, plinthH + mainY, frontZ)
+    group.add(labels)
+    const url = createRaisedText([{ text: 'www.itsteknosains.co.id', x: 0.07, y: 0.085, size: 0.074 }], blueW, 0.24, { depth: 0.015 })
+    url.position.set(blueX, plinthH + 0.28, frontZ)
+    group.add(url)
+
+    // ITS (light blue) / TEKNO SAINS (charcoal) logo on the white slab, kept above the blue diagonal
+    // (which is ~2.33 m high at x 0.37) and below the white top (~3.16 m at x 0.42)
     const { darkFrontMat, whiteSideMat, itsBlueFrontMat, itsLightSideMat } = createPlaqueLetterMaterials()
-    add3DTextTokens(
-        group,
-        ['iTS_i', 'iTS_T', 'iTS_S'],
-        0.35,
-        2.74,
-        0.156,
-        0.21,
-        0.18,
-        0.01,
-        [itsBlueFrontMat, itsLightSideMat],
-        0.022
-    )
-    add3DTextTokens(
-        group,
-        ['T', 'E', 'K', 'N', 'O'],
-        0.26,
-        2.52,
-        0.156,
-        0.135,
-        0.14,
-        0.018,
-        [darkFrontMat, whiteSideMat],
-        0.02,
-        0.12
-    )
-    add3DTextTokens(
-        group,
-        ['S', '^', 'I', 'N', 'S'],
-        0.29,
-        2.33,
-        0.156,
-        0.135,
-        0.14,
-        0.018,
-        [darkFrontMat, whiteSideMat],
-        0.02,
-        0.12
-    )
+    itsBlueFrontMat.color.set(0x1e8fe6)
+    const logoZ = 0.085
+    add3DTextTokens(group, ['iTS_i', 'iTS_T', 'iTS_S'], 0.42, 2.8, logoZ, 0.25, 0.2, 0.012, [itsBlueFrontMat, itsLightSideMat], 0.028)
+    add3DTextTokens(group, ['T', 'E', 'K', 'N', 'O'], 0.34, 2.6, logoZ, 0.14, 0.145, 0.02, [darkFrontMat, whiteSideMat], 0.024, 0.12)
+    add3DTextTokens(group, ['S', '^', 'I', 'N', 'S'], 0.37, 2.42, logoZ, 0.14, 0.145, 0.02, [darkFrontMat, whiteSideMat], 0.024, 0.12)
 
     return group
 }

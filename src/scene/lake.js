@@ -118,9 +118,20 @@ export function createParkLake(grassTex) {
     lakeWater.position.y = -0.54
     group.add(lakeWater)
 
+    // cheap stand-in for simplify mode: no per-frame reflection/refraction renders,
+    // just a glossy surface reflecting the static sky environment map
+    const simpleWater = new THREE.Mesh(
+        lakeGeo,
+        new THREE.MeshStandardMaterial({ color: 0x3d5a3e, roughness: 0.12, metalness: 0, envMapIntensity: 0.6 })
+    )
+    simpleWater.position.y = -0.54
+    simpleWater.visible = false
+    group.add(simpleWater)
+
     return {
         group,
         lakeWater,
+        simpleWater,
         lakeCutoutPath,
         lakeParams: { lakeCenterX, lakeCenterZ, lakeHalfLenZ, lakeAmpX }
     }

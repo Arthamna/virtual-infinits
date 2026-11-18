@@ -134,7 +134,7 @@ updateEnvironment()
 const viewState = { mode: 'god' }
 const gui = new GUI({ title: 'Scene' })
 gui.domElement.style.top = '56px' // below the export button
-gui.add(timeOfDay, 'hour', 6, 18, 0.1)
+const timeCtrl = gui.add(timeOfDay, 'hour', 6, 18, 0.1)
     .name('Time of day')
     .onChange(applyTimeOfDay)
     .onFinishChange(updateEnvironment) // PMREM bake is too slow to redo every slider tick
@@ -208,7 +208,28 @@ aoPass._overrideVisibility = function () {
     })
 }
 composer.addPass(aoPass)
-composer.addPass(new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.12, 0.4, 0.95))
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.12, 0.4, 0.95)
+composer.addPass(bloomPass)
+
+// simplify mode for slow GPUs: drops the costly parts — the water's real-time reflection/refraction
+// (two extra scene renders per frame), sun shadows, ambient occlusion and bloom. Lights stay on.
+const simplify = { on: false, savedHour: timeOfDay.hour }
+gui.add(simplify, 'on')
+    .name('Simplify mode')
+    .onChange((on) => {
+        // time of day is pinned to noon while simplified; the previous hour comes back when turned off
+        if (on) simplify.savedHour = timeOfDay.hour
+        timeOfDay.hour = on ? 12 : simplify.savedHour
+        timeCtrl.updateDisplay()
+        timeCtrl.enable(!on)
+        applyTimeOfDay(timeOfDay.hour)
+        updateEnvironment()
+        park.setSimpleWater(on)
+        sunLight.castShadow = !on
+        renderer.shadowMap.needsUpdate = true
+        aoPass.enabled = !on
+        bloomPass.enabled = !on
+    })
 composer.addPass(new OutputPass())
 
 const controls = new OrbitControls(camera, renderer.domElement)

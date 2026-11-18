@@ -144,6 +144,10 @@ export function createInfinitsParkScene() {
         setLampGlow(v) {
             lamps.setGlow(v)
             lampPosts.setGlow(v)
+        },
+        setSimpleWater(on) {
+            lake.lakeWater.visible = !on
+            lake.simpleWater.visible = on
         }
     }
 }
