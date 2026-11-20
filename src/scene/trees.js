@@ -857,6 +857,85 @@ export function createRealisticParkTrees({ isBlocked } = {}) {
         trees.push(lakeTree)
     }
 
+    // 1 Hero Custom EZ-Tree from user JSON preset (seed: 36330, deciduous, ash leaves)
+    {
+        const customTree = new Tree()
+        customTree.options.seed = 36330
+        customTree.options.type = 'deciduous'
+
+        customTree.options.bark.type = 'oak' // maps web preset "Bark001" to built-in ez-tree oak bark
+        customTree.options.bark.tint = 13552830
+        customTree.options.bark.flatShading = false
+        customTree.options.bark.textured = true
+        customTree.options.bark.textureScale = { x: 0.5, y: 5 }
+
+        customTree.options.branch.levels = 3
+        customTree.options.branch.angle = { 1: 48, 2: 75, 3: 60 }
+        customTree.options.branch.children = { 0: 7, 1: 4, 2: 3 }
+        customTree.options.branch.force = { direction: { x: 0, y: 1, z: 0 }, strength: 0.01 }
+        customTree.options.branch.gnarliness = { 0: 0.03, 1: 0.25, 2: 0.2, 3: 0.09 }
+        customTree.options.branch.length = { 0: 43.47, 1: 27.14, 2: 9.51, 3: 4.6 }
+        customTree.options.branch.radius = { 0: 2, 1: 0.63, 2: 0.76, 3: 0.7 }
+        customTree.options.branch.sections = { 0: 12, 1: 8, 2: 6, 3: 4 }
+        customTree.options.branch.segments = { 0: 12, 1: 6, 2: 4, 3: 3 }
+        customTree.options.branch.start = { 1: 0.23, 2: 0.33, 3: 0 }
+        customTree.options.branch.taper = { 0: 0.7, 1: 0.7, 2: 0.7, 3: 0.7 }
+        customTree.options.branch.twist = { 0: 0.09, 1: -0.07, 2: 0, 3: 0 }
+
+        customTree.options.leaves.type = 'ash'
+        customTree.options.leaves.billboard = 'double'
+        customTree.options.leaves.angle = 55
+        customTree.options.leaves.count = 16
+        customTree.options.leaves.start = 0
+        customTree.options.leaves.size = 2.67
+        customTree.options.leaves.sizeVariance = 0.72
+        customTree.options.leaves.tint = 16777215
+        customTree.options.leaves.alphaTest = 0.5
+
+        customTree.generate()
+        upgradeBarkToPBR(customTree)
+        bbox.setFromObject(customTree)
+        const cMaxR = Math.max(0.5, Math.abs(bbox.max.x), Math.abs(bbox.min.x), Math.abs(bbox.max.z), Math.abs(bbox.min.z))
+        styleTreeMeshes(customTree, { minY: bbox.min.y, maxY: bbox.max.y, maxR: cMaxR })
+
+        const cRawH = Math.max(0.01, bbox.max.y - bbox.min.y)
+        const cScale = 16.5 / cRawH
+
+        // Place prominently on the front-right lawn (auto-nudged if blocked by walkway/plaza)
+        let heroX = 20.5
+        let heroZ = -13.5
+        if (isBlocked && isBlocked(heroX, heroZ)) {
+            for (let r = 1; r <= 12; r += 1.5) {
+                let found = false
+                for (let a = 0; a < Math.PI * 2; a += Math.PI / 6) {
+                    const tx = heroX + Math.cos(a) * r
+                    const tz = heroZ + Math.sin(a) * r
+                    if (!isBlocked(tx, tz)) {
+                        heroX = tx
+                        heroZ = tz
+                        found = true
+                        break
+                    }
+                }
+                if (found) break
+            }
+        }
+
+        customTree.position.set(heroX, -bbox.min.y * cScale - 0.03, heroZ)
+        customTree.scale.setScalar(cScale)
+        if (customTree.branchesMesh) {
+            customTree.branchesMesh.castShadow = true
+            customTree.branchesMesh.receiveShadow = false
+        }
+        if (customTree.leavesMesh) {
+            customTree.leavesMesh.userData.noAO = true
+            customTree.leavesMesh.castShadow = true
+            customTree.leavesMesh.receiveShadow = false
+        }
+        group.add(customTree)
+        trees.push(customTree)
+    }
+
     return {
         group,
         update(elapsed = 0) {
