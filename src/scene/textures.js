@@ -1,14 +1,28 @@
 import * as THREE from 'three'
 
-function configureRepeatTexture(texture, repeatX, repeatY, isColor = true) {
-    texture.wrapS = THREE.RepeatWrapping
-    texture.wrapT = THREE.RepeatWrapping
-    texture.repeat.set(repeatX, repeatY)
-    texture.anisotropy = 8
-    if (isColor) {
-        texture.colorSpace = THREE.SRGBColorSpace
+let maxTextureAnisotropy = 8
+
+export function setMaxTextureAnisotropy(maxAnisotropy) {
+    maxTextureAnisotropy = Math.max(1, maxAnisotropy || 1)
+}
+
+export function configureTexture(texture, { isColor = true, repeat = false, repeatX = 1, repeatY = 1 } = {}) {
+    if (repeat) {
+        texture.wrapS = THREE.RepeatWrapping
+        texture.wrapT = THREE.RepeatWrapping
+        texture.repeat.set(repeatX, repeatY)
     }
+    texture.generateMipmaps = true
+    texture.minFilter = THREE.LinearMipmapLinearFilter
+    texture.magFilter = THREE.LinearFilter
+    texture.anisotropy = maxTextureAnisotropy
+    texture.colorSpace = isColor ? THREE.SRGBColorSpace : THREE.NoColorSpace
+    texture.needsUpdate = true
     return texture
+}
+
+function configureRepeatTexture(texture, repeatX, repeatY, isColor = true) {
+    return configureTexture(texture, { isColor, repeat: true, repeatX, repeatY })
 }
 
 export function createPavingTexture(repeatX = 18, repeatY = 6, grey = false) {
@@ -39,6 +53,31 @@ export function createPavingTexture(repeatX = 18, repeatY = 6, grey = false) {
         }
     }
 
+    // Fine stone grain + organic weathering patches so paving blocks don't look flat
+    let pSeed = grey ? 109 : 211
+    const pRand = () => {
+        pSeed = (pSeed * 1664525 + 1013904223) >>> 0
+        return pSeed / 4294967296
+    }
+    for (let i = 0; i < 3200; i++) {
+        const gx = pRand() * 512
+        const gy = pRand() * 512
+        const v = Math.floor(85 + pRand() * 90)
+        ctx.fillStyle = `rgba(${v}, ${v}, ${v}, 0.12)`
+        ctx.fillRect(gx, gy, 1.5, 1.5)
+    }
+    for (let i = 0; i < 45; i++) {
+        const sx = pRand() * 512
+        const sy = pRand() * 512
+        const sr = 24 + pRand() * 55
+        const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr)
+        const tint = pRand() > 0.35 ? '38, 42, 36' : '72, 66, 54'
+        g.addColorStop(0, `rgba(${tint}, 0.14)`)
+        g.addColorStop(1, `rgba(${tint}, 0)`)
+        ctx.fillStyle = g
+        ctx.fillRect(sx - sr, sy - sr, sr * 2, sr * 2)
+    }
+
     return configureRepeatTexture(new THREE.CanvasTexture(canvas), repeatX, repeatY)
 }
 
@@ -65,6 +104,29 @@ export function createBrickPlazaTexture(repeatX = 12, repeatY = 6) {
             ctx.fillStyle = `rgb(${red}, ${Math.floor(red * 0.34)}, ${Math.floor(red * 0.27)})`
             ctx.fillRect(x + 2, y + 2, w - 4, h - 4)
         }
+    }
+
+    let bSeed = 317
+    const bRand = () => {
+        bSeed = (bSeed * 1664525 + 1013904223) >>> 0
+        return bSeed / 4294967296
+    }
+    for (let i = 0; i < 2400; i++) {
+        const gx = bRand() * 512
+        const gy = bRand() * 512
+        const v = Math.floor(60 + bRand() * 110)
+        ctx.fillStyle = `rgba(${v}, ${Math.floor(v * 0.5)}, ${Math.floor(v * 0.4)}, 0.12)`
+        ctx.fillRect(gx, gy, 1.5, 1.5)
+    }
+    for (let i = 0; i < 30; i++) {
+        const sx = bRand() * 512
+        const sy = bRand() * 512
+        const sr = 20 + bRand() * 48
+        const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr)
+        g.addColorStop(0, 'rgba(42, 22, 18, 0.14)')
+        g.addColorStop(1, 'rgba(42, 22, 18, 0)')
+        ctx.fillStyle = g
+        ctx.fillRect(sx - sr, sy - sr, sr * 2, sr * 2)
     }
 
     return configureRepeatTexture(new THREE.CanvasTexture(canvas), repeatX, repeatY)
@@ -132,13 +194,7 @@ export function createWaterNormalTexture() {
     }
 
     const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat)
-    texture.wrapS = THREE.RepeatWrapping
-    texture.wrapT = THREE.RepeatWrapping
-    texture.generateMipmaps = true
-    texture.minFilter = THREE.LinearMipmapLinearFilter
-    texture.magFilter = THREE.LinearFilter
-    texture.needsUpdate = true
-    return texture
+    return configureTexture(texture, { isColor: false, repeat: true })
 }
 
 function drawTeknoSainsContent(ctx, width, height, isBump = false) {
@@ -276,7 +332,7 @@ export function createTeknoSainsTexture() {
 
     const texture = new THREE.CanvasTexture(canvas)
     texture.colorSpace = THREE.SRGBColorSpace
-    texture.anisotropy = 8
+    texture.anisotropy = 16
     return texture
 }
 
@@ -288,7 +344,7 @@ export function createTeknoSainsBumpTexture() {
     drawTeknoSainsContent(ctx, canvas.width, canvas.height, true)
 
     const texture = new THREE.CanvasTexture(canvas)
-    texture.anisotropy = 8
+    texture.anisotropy = 16
     return texture
 }
 
@@ -336,11 +392,174 @@ export function createGrassTexture() {
         ctx.stroke()
     }
 
-    const texture = new THREE.CanvasTexture(canvas)
-    texture.wrapS = THREE.RepeatWrapping
-    texture.wrapT = THREE.RepeatWrapping
-    texture.colorSpace = THREE.SRGBColorSpace
-    texture.anisotropy = 8
+    return configureTexture(new THREE.CanvasTexture(canvas), { isColor: true, repeat: true })
+}
+
+export function createLakeBedTexture() {
+    const size = 512
+    const canvas = document.createElement('canvas')
+    canvas.width = size
+    canvas.height = size
+    const ctx = canvas.getContext('2d')
+
+    ctx.fillStyle = '#364d34'
+    ctx.fillRect(0, 0, size, size)
+
+    let seed = 889
+    const rand = () => {
+        seed = (seed * 1664525 + 1013904223) >>> 0
+        return seed / 4294967296
+    }
+
+    // mossy sediment patches
+    for (let i = 0; i < 240; i++) {
+        const x = rand() * size
+        const y = rand() * size
+        const r = 14 + rand() * 38
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r)
+        const c = rand() > 0.45 ? '64, 92, 54' : '44, 66, 42'
+        g.addColorStop(0, `rgba(${c}, 0.5)`)
+        g.addColorStop(1, `rgba(${c}, 0)`)
+        ctx.fillStyle = g
+        ctx.fillRect(x - r, y - r, r * 2, r * 2)
+    }
+
+    // submerged pebbles & silt speckles
+    for (let i = 0; i < 4000; i++) {
+        const x = rand() * size
+        const y = rand() * size
+        const rx = 1 + rand() * 2.5
+        const ry = 0.8 + rand() * 2.0
+        const shade = Math.floor(55 + rand() * 55)
+        ctx.fillStyle = `rgba(${shade}, ${shade + 12}, ${shade - 4}, 0.45)`
+        ctx.beginPath()
+        ctx.ellipse(x, y, rx, ry, rand() * Math.PI, 0, Math.PI * 2)
+        ctx.fill()
+    }
+
+    return configureTexture(new THREE.CanvasTexture(canvas), { isColor: true, repeat: true, repeatX: 6, repeatY: 6 })
+}
+
+let cachedBrushedMetalTex = null
+export function createBrushedMetalTexture() {
+    if (cachedBrushedMetalTex) return cachedBrushedMetalTex
+    const size = 256
+    const canvas = document.createElement('canvas')
+    canvas.width = size
+    canvas.height = size
+    const ctx = canvas.getContext('2d')
+
+    ctx.fillStyle = '#909090'
+    ctx.fillRect(0, 0, size, size)
+
+    let seed = 313
+    const rand = () => {
+        seed = (seed * 1664525 + 1013904223) >>> 0
+        return seed / 4294967296
+    }
+
+    for (let i = 0; i < 1800; i++) {
+        const y = rand() * size
+        const x = rand() * size
+        const len = 18 + rand() * 80
+        const v = Math.floor(110 + rand() * 85)
+        ctx.strokeStyle = `rgba(${v}, ${v}, ${v}, 0.25)`
+        ctx.lineWidth = 0.7 + rand() * 0.8
+        ctx.beginPath()
+        ctx.moveTo(x, y)
+        ctx.lineTo(x + len, y)
+        ctx.stroke()
+    }
+
+    const texture = configureTexture(new THREE.CanvasTexture(canvas), {
+        isColor: false,
+        repeat: true,
+        repeatX: 2,
+        repeatY: 2
+    })
+    cachedBrushedMetalTex = texture
     return texture
+}
+
+export function createPavingPBRMaps(repeatX = 5, repeatY = 2, brick = false) {
+    const size = 256
+    const h = new Float32Array(size * size)
+    const rows = brick ? 12 : 8
+    const cols = brick ? 6 : 4
+    const cellW = size / cols
+    const cellH = size / rows
+    let seed = brick ? 901 : 404
+    const rand = () => {
+        seed = (seed * 1664525 + 1013904223) >>> 0
+        return seed / 4294967296
+    }
+
+    for (let y = 0; y < size; y++) {
+        const row = Math.floor(y / cellH)
+        const yIn = (y % cellH) / cellH
+        const offset = row % 2 === 1 ? cellW * 0.5 : 0
+        for (let x = 0; x < size; x++) {
+            const xOff = (x + offset) % size
+            const xIn = (xOff % cellW) / cellW
+            const groove = xIn < 0.06 || xIn > 0.94 || yIn < 0.06 || yIn > 0.94
+            h[y * size + x] = groove ? 0.15 : 0.78 + (rand() - 0.5) * 0.16
+        }
+    }
+
+    const nrmData = new Uint8Array(size * size * 4)
+    const aoData = new Uint8Array(size * size * 4)
+    const rghData = new Uint8Array(size * size * 4)
+    const sample = (x, y) => h[((y + size) % size) * size + ((x + size) % size)]
+
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const hL = sample(x - 1, y)
+            const hR = sample(x + 1, y)
+            const hU = sample(x, y - 1)
+            const hD = sample(x, y + 1)
+            const hC = sample(x, y)
+
+            const dx = (hL - hR) * 2.4
+            const dy = (hU - hD) * 2.4
+            const len = Math.hypot(dx, dy, 1)
+            const idx = (y * size + x) * 4
+            nrmData[idx] = Math.floor(((dx / len) * 0.5 + 0.5) * 255)
+            nrmData[idx + 1] = Math.floor(((dy / len) * 0.5 + 0.5) * 255)
+            nrmData[idx + 2] = Math.floor(((1 / len) * 0.5 + 0.5) * 255)
+            nrmData[idx + 3] = 255
+
+            const avg = (hL + hR + hU + hD) * 0.25
+            const ao = Math.max(0.35, Math.min(1.0, 0.85 + (hC - avg) * 1.4))
+            const aoByte = Math.floor(ao * 255)
+            aoData[idx] = aoByte
+            aoData[idx + 1] = aoByte
+            aoData[idx + 2] = aoByte
+            aoData[idx + 3] = 255
+
+            const rgh = Math.max(0.55, Math.min(1.0, 0.9 - hC * 0.18))
+            const rghByte = Math.floor(rgh * 255)
+            rghData[idx] = rghByte
+            rghData[idx + 1] = rghByte
+            rghData[idx + 2] = rghByte
+            rghData[idx + 3] = 255
+        }
+    }
+
+    const makeTex = (buf) => {
+        const tex = configureTexture(new THREE.DataTexture(buf, size, size, THREE.RGBAFormat), {
+            isColor: false,
+            repeat: true,
+            repeatX,
+            repeatY
+        })
+        tex.channel = 0
+        return tex
+    }
+
+    return {
+        normalMap: makeTex(nrmData),
+        aoMap: makeTex(aoData),
+        roughnessMap: makeTex(rghData)
+    }
 }
 

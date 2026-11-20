@@ -214,17 +214,21 @@ function createLetterShape(char, isTallCap = true) {
 export function createInfinitsSignage() {
     const group = new THREE.Group()
 
-    const blueMat = new THREE.MeshStandardMaterial({
+    const blueMat = new THREE.MeshPhysicalMaterial({
         color: 0x064da3,
-        roughness: 0.36,
-        metalness: 0.12,
-        envMapIntensity: 0.55
+        roughness: 0.14,
+        metalness: 0.18,
+        clearcoat: 0.85,
+        clearcoatRoughness: 0.1,
+        envMapIntensity: 1.15
     })
-    const yellowMat = new THREE.MeshStandardMaterial({
+    const yellowMat = new THREE.MeshPhysicalMaterial({
         color: 0xe8a800,
-        roughness: 0.36,
-        metalness: 0.12,
-        envMapIntensity: 0.55
+        roughness: 0.14,
+        metalness: 0.18,
+        clearcoat: 0.85,
+        clearcoatRoughness: 0.1,
+        envMapIntensity: 1.15
     })
     const postMat = new THREE.MeshStandardMaterial({
         color: 0x22262b,
@@ -427,7 +431,7 @@ export function createInfinitsSignage() {
     haloGeo.scale(1.05, 1.13, 1)
     haloGeo.translate(2.35, 0.86, 0)
     const haloMat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(0xffd9a0).multiplyScalar(2.2),
+        color: new THREE.Color(0x2288ff).multiplyScalar(2.2),
         transparent: true,
         opacity: 0.85,
         polygonOffset: true,
@@ -438,7 +442,7 @@ export function createInfinitsSignage() {
     const halo = new THREE.Mesh(haloGeo, haloMat)
     halo.position.z = -0.03
     plaqueGroup.add(halo)
-    const backLight = new THREE.PointLight(0xffd9a0, 2.5, 3, 2)
+    const backLight = new THREE.PointLight(0x2288ff, 2.5, 3, 2)
     backLight.position.set(2.35, 0.86, -0.025)
     plaqueGroup.add(backLight)
 

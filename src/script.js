@@ -8,32 +8,38 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
-import GUI from 'lil-gui'
 import { createInfinitsParkScene } from './scene/infinitsPark'
 import { createWalkControls } from './walkControls'
+import { setMaxTextureAnisotropy } from './scene/textures'
 
 const container = document.createElement('div')
 document.body.appendChild(container)
 
 const scene = new THREE.Scene()
-scene.fog = new THREE.FogExp2(0xe6cfae, 0.0035)
 
+const MIN_DPR = Math.min(window.devicePixelRatio, 1.25)
+const MAX_DPR = 2
+let currentDpr = Math.min(window.devicePixelRatio, MAX_DPR)
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+renderer.setPixelRatio(currentDpr)
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.outputColorSpace = THREE.SRGBColorSpace
 renderer.toneMapping = THREE.ACESFilmicToneMapping
-renderer.toneMappingExposure = 0.52
+renderer.toneMappingExposure = 0.78
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
 // the scene is static apart from grass sway, so redraw the shadow map only when the sun or the trees change
 renderer.shadowMap.autoUpdate = false
 renderer.shadowMap.needsUpdate = true
+setMaxTextureAnisotropy(renderer.capabilities.getMaxAnisotropy())
 container.appendChild(renderer.domElement)
 
-const camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 0.2, 10000)
-camera.position.set(6, 5.5, 17)
+const PARK_SCALE = 1.6
+
+const camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 0.5, 5000)
+camera.position.set(6 * PARK_SCALE, 5.5 * PARK_SCALE, 17 * PARK_SCALE)
 scene.add(camera)
 
 // set by applyTimeOfDay(); the sun rises on the left (-x) and sets on the right (+x) of the start view
@@ -44,16 +50,18 @@ sky.scale.setScalar(4500)
 scene.add(sky)
 
 const skyUniforms = sky.material.uniforms
-skyUniforms['mieCoefficient'].value = 0.003
-// tighter sun halo so the glow doesn't flood half the screen
-skyUniforms['mieDirectionalG'].value = 0.8
-skyUniforms['showSunDisc'].value = 0
-// soft highlight roll-off on the sky: luminance above 1 (the glow around the sun) is compressed,
-// everything below stays untouched, so the sun stays bright without a clipped white blob
+skyUniforms['mieCoefficient'].value = 0.0008
+// tight sun corona + visible sun disc so it reads as an actual sun rather than a wide glare
+skyUniforms['mieDirectionalG'].value = 0.94
+skyUniforms['showSunDisc'].value = 1
+// Reinhard sky roll-off to tame the wide glare on the right while keeping a crisp sun disc
 sky.material.fragmentShader = sky.material.fragmentShader.replace(
     'gl_FragColor = vec4( texColor, 1.0 );',
     `float skyLum = dot( texColor, vec3( 0.2126, 0.7152, 0.0722 ) );
-    texColor /= 1.0 + 0.6 * max( skyLum - 1.0, 0.0 );
+    float compressedLum = skyLum / ( 1.0 + skyLum * 0.95 );
+    texColor *= compressedLum / max( skyLum, 0.0001 );
+    float horizonFade = smoothstep( 0.0, 0.22, max( normalize( vWorldPosition ).y, 0.0 ) );
+    texColor *= mix( 0.58, 1.0, horizonFade );
     gl_FragColor = vec4( texColor, 1.0 );`
 )
 // smaller, denser puffs read more like cumulus than the default streaky layer
@@ -66,81 +74,71 @@ const pmremGenerator = new THREE.PMREMGenerator(renderer)
 let envRenderTarget = null
 function updateEnvironment() {
     envRenderTarget?.dispose()
-    envRenderTarget = pmremGenerator.fromScene(sky, 0.04)
+    envRenderTarget = pmremGenerator.fromScene(sky, 0.02)
     scene.environment = envRenderTarget.texture
 }
-scene.environmentIntensity = 0.45
+scene.environmentIntensity = 0.78
 
-const hemiLight = new THREE.HemisphereLight(0xf5c89a, 0x3a3020, 0.55)
+const hemiLight = new THREE.HemisphereLight(0xf5c89a, 0x4d5e3a, 0.75)
 hemiLight.position.set(0, 30, 0)
 scene.add(hemiLight)
 
 const sunLight = new THREE.DirectionalLight(0xffa860, 1.15)
-sunLight.target.position.set(-4, 0, -42)
+sunLight.target.position.set(0, 0, -56 * PARK_SCALE)
 scene.add(sunLight.target)
 sunLight.castShadow = true
 sunLight.shadow.mapSize.set(4096, 4096)
-sunLight.shadow.camera.near = 5
-sunLight.shadow.camera.far = 230
-sunLight.shadow.camera.left = -72
-sunLight.shadow.camera.right = 72
-sunLight.shadow.camera.top = 64
-sunLight.shadow.camera.bottom = -64
-sunLight.shadow.bias = -0.0004
+sunLight.shadow.camera.near = 10
+sunLight.shadow.camera.far = 220 * PARK_SCALE
+sunLight.shadow.camera.left = -52 * PARK_SCALE
+sunLight.shadow.camera.right = 52 * PARK_SCALE
+sunLight.shadow.camera.top = 72 * PARK_SCALE
+sunLight.shadow.camera.bottom = -72 * PARK_SCALE
+sunLight.shadow.bias = -0.0005
 sunLight.shadow.normalBias = 0.02
 scene.add(sunLight)
 
 const park = createInfinitsParkScene()
+park.group.scale.setScalar(PARK_SCALE)
 scene.add(park.group)
 
 const lowSunColor = new THREE.Color(0xffa860)
 const highSunColor = new THREE.Color(0xfff2e0)
 const lowSkyColor = new THREE.Color(0xf5c89a)
 const highSkyColor = new THREE.Color(0xd2e2f2)
-const lowFogColor = new THREE.Color(0xe6cfae)
-const highFogColor = new THREE.Color(0xcfe0e8)
 
-// hour 6..18: sun arc, light colour/intensity, sky haze, fog and wind all follow the time of day
+// hour 6..18: sun arc, light colour/intensity, sky haze and wind all follow the time of day
 function applyTimeOfDay(hour) {
     const angle = ((hour - 6) / 12) * Math.PI
     sunPosition.set(-60 * Math.cos(angle), 2 + 55 * Math.sin(angle), 4 + 10 * Math.sin(angle))
     const high = THREE.MathUtils.smoothstep(sunPosition.y / 57, 0.05, 0.7) // 0 = sun at horizon, 1 = midday
 
     skyUniforms['sunPosition'].value.copy(sunPosition)
-    skyUniforms['turbidity'].value = THREE.MathUtils.lerp(10, 4, high)
-    skyUniforms['rayleigh'].value = THREE.MathUtils.lerp(3, 1.4, high)
+    skyUniforms['turbidity'].value = THREE.MathUtils.lerp(4.5, 2.2, high)
+    skyUniforms['rayleigh'].value = THREE.MathUtils.lerp(1.8, 1.0, high)
 
-    sunLight.position.set(-4 + sunPosition.x, sunPosition.y, -42 + sunPosition.z)
+    sunLight.position.set(sunPosition.x * PARK_SCALE, sunPosition.y * PARK_SCALE, (-56 + sunPosition.z) * PARK_SCALE)
     sunLight.color.lerpColors(lowSunColor, highSunColor, high)
-    sunLight.intensity = THREE.MathUtils.lerp(0.75, 1.8, high)
+    sunLight.intensity = THREE.MathUtils.lerp(0.95, 2.55, high)
     hemiLight.color.lerpColors(lowSkyColor, highSkyColor, high)
-    hemiLight.intensity = THREE.MathUtils.lerp(0.45, 0.65, high)
-    scene.fog.color.lerpColors(lowFogColor, highFogColor, high)
+    hemiLight.intensity = THREE.MathUtils.lerp(0.50, 0.85, high)
 
     // calm morning, gusty mid-afternoon, settling toward evening
     renderer.shadowMap.needsUpdate = true
     park.setWind(0.5 + 1.3 * Math.exp(-(((hour - 14) / 3) ** 2)))
     park.setLampGlow(0.15 + 2.6 * (1 - high) ** 2) // lamps barely visible at noon, glowing toward dusk
+    park.setSun(sunPosition, sunLight.color)
 }
 
 park.vegetation.addEventListener('loaded', () => {
     renderer.shadowMap.needsUpdate = true
 })
 
-const timeOfDay = { hour: 17.5 } // matches the previous fixed orange afternoon sun
+const timeOfDay = { hour: 10.5 } // always sunny midday
 applyTimeOfDay(timeOfDay.hour)
 updateEnvironment()
 
 const viewState = { mode: 'god' }
-const gui = new GUI({ title: 'Scene' })
-gui.domElement.style.top = '56px' // below the export button
-const timeCtrl = gui.add(timeOfDay, 'hour', 6, 18, 0.1)
-    .name('Time of day')
-    .onChange(applyTimeOfDay)
-    .onFinishChange(updateEnvironment) // PMREM bake is too slow to redo every slider tick
-gui.add(viewState, 'mode', { 'God (orbit / pan)': 'god', 'Walk (path + plaza)': 'walk' })
-    .name('Camera mode')
-    .onChange(setViewMode)
 
 // 4K still from the same angle as the reference photo: standing in front of the plaza steps,
 // left of centre, looking across at the sign. The live view is restored afterwards.
@@ -163,9 +161,16 @@ function takePhoto() {
     camera.updateProjectionMatrix()
     renderer.setPixelRatio(1)
     renderer.setSize(w, h, false) // false: keep the on-page canvas size, only the buffer grows
+    const savedAo = aoPass.enabled
+    aoPass.enabled = true
     composer.setPixelRatio(1)
     composer.setSize(w, h)
-    composer.render()
+    if (aoPass.enabled || bloomPass.enabled) {
+        composer.render()
+    } else {
+        renderer.render(scene, camera)
+    }
+    aoPass.enabled = savedAo
     renderer.domElement.toBlob((blob) => {
         const link = document.createElement('a')
         link.href = URL.createObjectURL(blob)
@@ -185,7 +190,6 @@ function takePhoto() {
     composer.setSize(window.innerWidth, window.innerHeight)
     controls.enabled = saved.controls
 }
-gui.add({ takePhoto }, 'takePhoto').name('Take 4K photo')
 
 // MSAA target: the composer otherwise drops the canvas antialiasing
 const composer = new EffectComposer(
@@ -194,58 +198,119 @@ const composer = new EffectComposer(
 )
 composer.addPass(new RenderPass(scene, camera))
 const aoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight)
-aoPass.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1, scale: 1.2 })
+aoPass.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1, scale: 1.2, samples: 8 })
+aoPass.enabled = false // off by default for high FPS; toggleable via GUI or enabled in 4K photo
+let noAOMeshes = []
+function refreshNoAOCache() {
+    noAOMeshes = []
+    scene.traverse((o) => {
+        if (o.userData.noAO) noAOMeshes.push(o)
+    })
+}
+refreshNoAOCache()
+park.vegetation.addEventListener('loaded', refreshNoAOCache)
 // alpha-tested leaves (userData.noAO) would be drawn as solid quads in GTAO's normal/depth pass
 // and smear AO squares onto the sky. shortcut: patches a private GTAOPass method, recheck on three upgrades
 const hideFromAO = aoPass._overrideVisibility.bind(aoPass)
 aoPass._overrideVisibility = function () {
     hideFromAO()
-    scene.traverse((o) => {
-        if (o.userData.noAO && o.visible) {
+    for (let i = 0; i < noAOMeshes.length; i++) {
+        const o = noAOMeshes[i]
+        if (o.visible) {
             o.visible = false
             this._visibilityCache.push(o)
         }
-    })
+    }
 }
 composer.addPass(aoPass)
-const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.12, 0.4, 0.95)
+const bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2)),
+    0.04,
+    0.25,
+    1.1
+)
+bloomPass.enabled = false
 composer.addPass(bloomPass)
-
-// simplify mode for slow GPUs: drops the costly parts — the water's real-time reflection/refraction
-// (two extra scene renders per frame), sun shadows, ambient occlusion and bloom. Lights stay on.
-const simplify = { on: false, savedHour: timeOfDay.hour }
-gui.add(simplify, 'on')
-    .name('Simplify mode')
-    .onChange((on) => {
-        // time of day is pinned to noon while simplified; the previous hour comes back when turned off
-        if (on) simplify.savedHour = timeOfDay.hour
-        timeOfDay.hour = on ? 12 : simplify.savedHour
-        timeCtrl.updateDisplay()
-        timeCtrl.enable(!on)
-        applyTimeOfDay(timeOfDay.hour)
-        updateEnvironment()
-        park.setSimpleWater(on)
-        sunLight.castShadow = !on
-        renderer.shadowMap.needsUpdate = true
-        aoPass.enabled = !on
-        bloomPass.enabled = !on
-    })
+const smaaPass = new SMAAPass(window.innerWidth * currentDpr, window.innerHeight * currentDpr)
+smaaPass.enabled = false
+composer.addPass(smaaPass)
 composer.addPass(new OutputPass())
+composer.setPixelRatio(currentDpr)
+composer.setSize(window.innerWidth, window.innerHeight)
 
 const controls = new OrbitControls(camera, renderer.domElement)
-controls.target.set(0, 1.85, -2.2)
+controls.target.set(0, 1.85 * PARK_SCALE, -2.2 * PARK_SCALE)
 controls.enableDamping = false // camera moves only while the mouse moves, no glide after release
 
 function setOrbitControlsLimits() {
-    controls.minDistance = 6
-    controls.maxDistance = 120
+    controls.minDistance = 1.5
+    controls.maxDistance = 400 * PARK_SCALE
     controls.enableRotate = true
     controls.enableZoom = true
     controls.enablePan = true
-    controls.screenSpacePanning = false
-    controls.keyPanSpeed = 18
-    controls.listenToKeyEvents(window)
-    controls.maxPolarAngle = Math.PI / 2 - 0.02
+    controls.rotateSpeed = 1.2
+    controls.zoomSpeed = 2.0
+    controls.panSpeed = 2.2
+    controls.screenSpacePanning = true
+    controls.keyPanSpeed = 45
+    controls.maxPolarAngle = Math.PI / 2 - 0.01
+}
+
+// Fast free-fly movement in God mode: WASD / Arrows move, Space/Q up, C down, Shift turbo boost
+const flyKeys = new Set()
+const flyForward = new THREE.Vector3()
+const flyRight = new THREE.Vector3()
+const flyMove = new THREE.Vector3()
+
+function cancelIntroAndEnableControls() {
+    if (!controls.enabled && viewState.mode === 'god') {
+        TWEEN.removeAll()
+        controls.enabled = true
+        setOrbitControlsLimits()
+    }
+}
+
+window.addEventListener('keydown', (e) => {
+    if (viewState.mode !== 'god') return
+    const code = e.code
+    if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyQ', 'KeyC', 'ShiftLeft', 'ShiftRight'].includes(code)) {
+        cancelIntroAndEnableControls()
+        flyKeys.add(code)
+    }
+})
+window.addEventListener('keyup', (e) => {
+    flyKeys.delete(e.code)
+})
+window.addEventListener('blur', () => flyKeys.clear())
+renderer.domElement.addEventListener('pointerdown', cancelIntroAndEnableControls)
+
+function updateFreeFly(dt) {
+    if (!controls.enabled || flyKeys.size === 0) return
+    const speed = (flyKeys.has('ShiftLeft') || flyKeys.has('ShiftRight') ? 55 : 22) * dt
+
+    camera.getWorldDirection(flyForward)
+    flyForward.y = 0
+    if (flyForward.lengthSq() > 0) flyForward.normalize()
+    flyRight.crossVectors(flyForward, camera.up).normalize()
+
+    flyMove.set(0, 0, 0)
+    if (flyKeys.has('KeyW') || flyKeys.has('ArrowUp')) flyMove.add(flyForward)
+    if (flyKeys.has('KeyS') || flyKeys.has('ArrowDown')) flyMove.sub(flyForward)
+    if (flyKeys.has('KeyD') || flyKeys.has('ArrowRight')) flyMove.add(flyRight)
+    if (flyKeys.has('KeyA') || flyKeys.has('ArrowLeft')) flyMove.sub(flyRight)
+    if (flyKeys.has('Space') || flyKeys.has('KeyQ')) flyMove.y += 1
+    if (flyKeys.has('KeyC')) flyMove.y -= 1
+
+    if (flyMove.lengthSq() > 0) {
+        flyMove.normalize().multiplyScalar(speed)
+        camera.position.add(flyMove)
+        controls.target.add(flyMove)
+        if (camera.position.y < 0.5) {
+            const lift = 0.5 - camera.position.y
+            camera.position.y += lift
+            controls.target.y += lift
+        }
+    }
 }
 
 function introAnimation() {
@@ -254,9 +319,9 @@ function introAnimation() {
     new TWEEN.Tween(camera.position, true)
         .to(
             {
-                x: 0.15,
-                y: 2.35,
-                z: 11.4
+                x: 0.15 * PARK_SCALE,
+                y: 2.35 * PARK_SCALE,
+                z: 11.4 * PARK_SCALE
             },
             2800
         )
@@ -274,6 +339,7 @@ introAnimation()
 
 // --- camera modes: God (orbit/pan) and Walk (first person along the lake path) ---
 park.group.updateMatrixWorld(true) // ground rays need world matrices before the first render
+park.walk.start.multiplyScalar(PARK_SCALE)
 const walk = createWalkControls({
     camera,
     domElement: renderer.domElement,
@@ -316,16 +382,24 @@ function setViewMode(mode) {
     walkHint.style.display = mode === 'walk' ? 'block' : 'none'
 }
 
+function applyViewportSize(width, height, dpr) {
+    renderer.setPixelRatio(dpr)
+    renderer.setSize(width, height)
+    composer.setPixelRatio(dpr)
+    composer.setSize(width, height)
+    bloomPass.resolution.set(Math.floor(width / 2), Math.floor(height / 2))
+    smaaPass.setSize(Math.floor(width * dpr), Math.floor(height * dpr))
+}
+
 window.addEventListener('resize', () => {
     const width = window.innerWidth
     const height = window.innerHeight
     camera.aspect = width / height
     camera.updateProjectionMatrix()
 
-    renderer.setSize(width, height)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    composer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    composer.setSize(width, height)
+    const maxAllowed = Math.min(window.devicePixelRatio, MAX_DPR)
+    currentDpr = THREE.MathUtils.clamp(currentDpr, MIN_DPR, maxAllowed)
+    applyViewportSize(width, height, currentDpr)
 })
 
 function exportParkToGLB() {
@@ -385,10 +459,41 @@ const viewDir = new THREE.Vector3()
 const sunDir = new THREE.Vector3()
 let lastElapsed = 0
 
+// Adaptive pixel ratio based on rolling average FPS (<45 step down 0.25, >58 step up 0.25, range 1..2)
+let fpsFrames = 0
+let fpsAccum = 0
+const FPS_WINDOW_SEC = 1.0
+const DPR_STEP = 0.25
+
+function updateAdaptiveQuality(dt) {
+    fpsFrames++
+    fpsAccum += dt
+    if (fpsAccum < FPS_WINDOW_SEC) return
+
+    const avgFps = fpsFrames / fpsAccum
+    fpsFrames = 0
+    fpsAccum = 0
+
+    const maxAllowed = Math.min(window.devicePixelRatio, MAX_DPR)
+    let nextDpr = currentDpr
+    if (avgFps < 45 && currentDpr > MIN_DPR) {
+        nextDpr = Math.max(MIN_DPR, Math.round((currentDpr - DPR_STEP) * 4) / 4)
+    } else if (avgFps > 58 && currentDpr < maxAllowed) {
+        nextDpr = Math.min(maxAllowed, Math.round((currentDpr + DPR_STEP) * 4) / 4)
+    }
+
+    if (nextDpr !== currentDpr) {
+        currentDpr = nextDpr
+        applyViewportSize(window.innerWidth, window.innerHeight, currentDpr)
+    }
+}
+
 function renderLoop() {
     const elapsed = clock.getElapsedTime()
     const dt = Math.min(0.1, elapsed - lastElapsed)
     lastElapsed = elapsed
+
+    updateAdaptiveQuality(dt)
 
     camera.getWorldDirection(viewDir)
     sunDir.copy(sunPosition).normalize()
@@ -398,7 +503,10 @@ function renderLoop() {
 
     TWEEN.update()
     if (walk.enabled) walk.update(dt)
-    else controls.update()
+    else {
+        updateFreeFly(dt)
+        controls.update()
+    }
     park.update(elapsed)
     skyUniforms['time'].value = elapsed
 

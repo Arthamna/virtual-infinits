@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { createConcreteTexture, createPavingTexture } from './textures'
+import { createConcreteTexture, createPavingPBRMaps, createPavingTexture } from './textures'
 
 export function createParkPaths({
     walkwayMat,
@@ -188,9 +188,15 @@ export function createParkPaths({
     fullWalkwayGeo.setAttribute('position', new THREE.Float32BufferAttribute(lpPos, 3))
     fullWalkwayGeo.setAttribute('uv', new THREE.Float32BufferAttribute(lpUV, 2))
     fullWalkwayGeo.setIndex(lpIdx)
+    const lakePathPBR = createPavingPBRMaps(3, 3, false)
     const lakePathMat = new THREE.MeshStandardMaterial({
         map: createPavingTexture(3, 3, true),
-        roughness: 0.88,
+        normalMap: lakePathPBR.normalMap,
+        normalScale: new THREE.Vector2(0.85, 0.85),
+        aoMap: lakePathPBR.aoMap,
+        aoMapIntensity: 0.65,
+        roughnessMap: lakePathPBR.roughnessMap,
+        roughness: 0.85,
         metalness: 0.03
     })
     // top and side faces share vertices; split them so the top gets a flat up normal instead of a blended one
@@ -311,7 +317,7 @@ export function createParkPaths({
     }
     perimGeo.setAttribute('uv', new THREE.BufferAttribute(perimUV, 2))
     const perimMesh = new THREE.Mesh(perimGeo, [walkwayMat, curbMat])
-    perimMesh.position.y = 0.24
+    perimMesh.position.y = 0.06
     perimMesh.castShadow = true
     perimMesh.receiveShadow = true
     group.add(perimMesh)
