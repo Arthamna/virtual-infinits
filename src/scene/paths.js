@@ -189,8 +189,13 @@ export function createParkPaths({
     fullWalkwayGeo.setAttribute('uv', new THREE.Float32BufferAttribute(lpUV, 2))
     fullWalkwayGeo.setIndex(lpIdx)
     const lakePathMat = new THREE.MeshStandardMaterial({
-        map: createPavingTexture(3, 3, true),
-        roughness: 0.88,
+        map: createPavingTexture(3, 3, false),
+        normalMap: lakePathPBR.normalMap,
+        normalScale: new THREE.Vector2(1.45, 1.45),
+        aoMap: lakePathPBR.aoMap,
+        aoMapIntensity: 0.85,
+        roughnessMap: lakePathPBR.roughnessMap,
+        roughness: 0.85,
         metalness: 0.03
     })
     // top and side faces share vertices; split them so the top gets a flat up normal instead of a blended one

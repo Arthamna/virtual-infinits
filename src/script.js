@@ -8,6 +8,8 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js'
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import GUI from 'lil-gui'
 import { createInfinitsParkScene } from './scene/infinitsPark'
@@ -17,7 +19,7 @@ const container = document.createElement('div')
 document.body.appendChild(container)
 
 const scene = new THREE.Scene()
-scene.fog = new THREE.FogExp2(0xe6dfd4, 0.0016)
+scene.fog = new THREE.FogExp2(0xd99b76, 0.0022)
 
 const MIN_DPR = Math.min(window.devicePixelRatio, 1.35)
 const MAX_DPR = 2
@@ -27,7 +29,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.outputColorSpace = THREE.SRGBColorSpace
 renderer.toneMapping = THREE.ACESFilmicToneMapping
-renderer.toneMappingExposure = 0.80
+renderer.toneMappingExposure = 0.84
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
 // the scene is static apart from grass sway, so redraw the shadow map only when the sun or the trees change
@@ -94,15 +96,15 @@ sunLight.shadow.normalBias = 0.014
 sunLight.shadow.radius = 2.4
 scene.add(sunLight)
 
-const skyFillLight = new THREE.DirectionalLight(0x9ec5f8, 0.55)
+const skyFillLight = new THREE.DirectionalLight(0x6b82c4, 0.36)
 scene.add(skyFillLight)
 
 const park = createInfinitsParkScene()
 scene.add(park.group)
 
-const lowSunColor = new THREE.Color(0xffa860)
+const lowSunColor = new THREE.Color(0xff7a3d)
 const highSunColor = new THREE.Color(0xfff2e0)
-const lowSkyColor = new THREE.Color(0xf5c89a)
+const lowSkyColor = new THREE.Color(0xf29f6d)
 const highSkyColor = new THREE.Color(0xd2e2f2)
 const lowFogColor = new THREE.Color(0xe6cfae)
 const highFogColor = new THREE.Color(0xcfe0e8)
@@ -114,16 +116,15 @@ function applyTimeOfDay(hour) {
     const high = THREE.MathUtils.smoothstep(sunPosition.y / 57, 0.05, 0.7) // 0 = sun at horizon, 1 = midday
 
     skyUniforms['sunPosition'].value.copy(sunPosition)
-    skyUniforms['turbidity'].value = THREE.MathUtils.lerp(10, 4, high)
-    skyUniforms['rayleigh'].value = THREE.MathUtils.lerp(3, 1.4, high)
+    skyUniforms['turbidity'].value = THREE.MathUtils.lerp(7.5, 2.2, high)
+    skyUniforms['rayleigh'].value = THREE.MathUtils.lerp(2.8, 1.0, high)
 
     sunLight.position.set(-4 + sunPosition.x, sunPosition.y, -42 + sunPosition.z)
     sunLight.color.lerpColors(lowSunColor, highSunColor, high)
-    sunLight.intensity = THREE.MathUtils.lerp(1.15, 2.85, high)
+    sunLight.intensity = THREE.MathUtils.lerp(1.55, 2.85, high)
     skyFillLight.position.set(-sunPosition.x, sunPosition.y * 0.75, -sunPosition.z)
     hemiLight.color.lerpColors(lowSkyColor, highSkyColor, high)
-    hemiLight.intensity = THREE.MathUtils.lerp(0.45, 0.65, high)
-    scene.fog.color.lerpColors(lowFogColor, highFogColor, high)
+    hemiLight.intensity = THREE.MathUtils.lerp(0.36, 0.72, high)
 
     // calm morning, gusty mid-afternoon, settling toward evening
     renderer.shadowMap.needsUpdate = true
@@ -135,20 +136,11 @@ park.vegetation.addEventListener('loaded', () => {
     renderer.shadowMap.needsUpdate = true
 })
 
-const timeOfDay = { hour: 15.6 } // always sunny midday
+const timeOfDay = { hour: 17.45 } // always sunny midday
 applyTimeOfDay(timeOfDay.hour)
 updateEnvironment()
 
-const viewState = { mode: 'god' }
-const gui = new GUI({ title: 'Scene' })
-gui.domElement.style.top = '56px' // below the export button
-const timeCtrl = gui.add(timeOfDay, 'hour', 6, 18, 0.1)
-    .name('Time of day')
-    .onChange(applyTimeOfDay)
-    .onFinishChange(updateEnvironment) // PMREM bake is too slow to redo every slider tick
-gui.add(viewState, 'mode', { 'God (orbit / pan)': 'god', 'Walk (path + plaza)': 'walk' })
-    .name('Camera mode')
-    .onChange(setViewMode)
+const viewState = { mode: 'walk' }
 
 // 4K still from the same angle as the reference photo: standing in front of the plaza steps,
 // left of centre, looking across at the sign. The live view is restored afterwards.
@@ -218,26 +210,66 @@ aoPass._overrideVisibility = function () {
 composer.addPass(aoPass)
 const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.12, 0.4, 0.95)
 composer.addPass(bloomPass)
+const smaaPass = new SMAAPass(window.innerWidth * currentDpr, window.innerHeight * currentDpr)
+smaaPass.enabled = false
+composer.addPass(smaaPass)
 
-// simplify mode for slow GPUs: drops the costly parts — the water's real-time reflection/refraction
-// (two extra scene renders per frame), sun shadows, ambient occlusion and bloom. Lights stay on.
-const simplify = { on: false, savedHour: timeOfDay.hour }
-gui.add(simplify, 'on')
-    .name('Simplify mode')
-    .onChange((on) => {
-        // time of day is pinned to noon while simplified; the previous hour comes back when turned off
-        if (on) simplify.savedHour = timeOfDay.hour
-        timeOfDay.hour = on ? 12 : simplify.savedHour
-        timeCtrl.updateDisplay()
-        timeCtrl.enable(!on)
-        applyTimeOfDay(timeOfDay.hour)
-        updateEnvironment()
-        park.setSimpleWater(on)
-        sunLight.castShadow = !on
-        renderer.shadowMap.needsUpdate = true
-        aoPass.enabled = !on
-        bloomPass.enabled = !on
-    })
+// Screen-space volumetric sun god-rays (crepuscular shafts + crisp object silhouettes against the sun)
+const godRaysPass = new ShaderPass({
+    uniforms: {
+        tDiffuse: { value: null },
+        uSunScreenPos: { value: new THREE.Vector2(0.5, 0.5) },
+        uIntensity: { value: 0.0 },
+        uRayColor: { value: new THREE.Color(0xffc982) }
+    },
+    vertexShader: `
+        varying vec2 vUv;
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        uniform sampler2D tDiffuse;
+        uniform vec2 uSunScreenPos;
+        uniform float uIntensity;
+        uniform vec3 uRayColor;
+        varying vec2 vUv;
+
+        void main() {
+            vec4 baseColor = texture2D(tDiffuse, vUv);
+            if (uIntensity <= 0.001) {
+                gl_FragColor = baseColor;
+                return;
+            }
+
+            const int SAMPLES = 28;
+            vec2 deltaUv = (vUv - uSunScreenPos) * (0.88 / float(SAMPLES));
+            vec2 coord = vUv;
+            float decay = 1.0;
+            float accum = 0.0;
+
+            for (int i = 0; i < SAMPLES; i++) {
+                coord -= deltaUv;
+                vec2 clampedCoord = clamp(coord, 0.001, 0.999);
+                vec3 samp = texture2D(tDiffuse, clampedCoord).rgb;
+                float lum = dot(samp, vec3(0.2126, 0.7152, 0.0722));
+                // Only bright sky/sunlight gaps scatter rays; dark silhouetted trunks & leaves block them
+                float bright = smoothstep(0.62, 1.45, lum);
+                accum += bright * decay;
+                decay *= 0.94;
+            }
+
+            float distToSun = length(vUv - uSunScreenPos);
+            float radialFalloff = smoothstep(1.15, 0.0, distToSun);
+            float rays = (accum / float(SAMPLES)) * radialFalloff * uIntensity;
+
+            gl_FragColor = vec4(baseColor.rgb + uRayColor * rays * 1.45, baseColor.a);
+        }
+    `
+})
+godRaysPass.enabled = false
+composer.addPass(godRaysPass)
 composer.addPass(new OutputPass())
 
 const controls = new OrbitControls(camera, renderer.domElement)
@@ -278,7 +310,7 @@ function introAnimation() {
         })
 }
 
-introAnimation()
+// Start directly in Minecraft First-Person mode (press V or click button to switch to Orbit)
 
 // --- camera modes: God (orbit/pan) and Walk (first person along the lake path) ---
 park.group.updateMatrixWorld(true) // ground rays need world matrices before the first render
@@ -288,7 +320,7 @@ const walk = createWalkControls({
     ...park.walk
 })
 const walkHint = document.createElement('div')
-walkHint.textContent = 'WASD move · drag to look · Shift run'
+walkHint.textContent = 'Klik layar untuk lihat sekitar · WASD jalan · Space lompat · Shift lari · V ganti mode · ESC lepas kursor'
 Object.assign(walkHint.style, {
     position: 'fixed',
     bottom: '16px',
@@ -304,7 +336,55 @@ Object.assign(walkHint.style, {
 })
 document.body.appendChild(walkHint)
 
+
+const crosshair = document.createElement('div')
+crosshair.textContent = '+'
+Object.assign(crosshair.style, {
+    position: 'fixed',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
+    color: 'rgba(255, 255, 255, 0.88)',
+    fontFamily: 'monospace',
+    fontSize: '22px',
+    fontWeight: '700',
+    textShadow: '0 1px 3px rgba(0, 0, 0, 0.85)',
+    pointerEvents: 'none',
+    userSelect: 'none',
+    zIndex: '1000'
+})
+document.body.appendChild(crosshair)
+
+const modeBtn = document.createElement('button')
+Object.assign(modeBtn.style, {
+    position: 'fixed',
+    top: '14px',
+    right: '14px',
+    zIndex: '1001',
+    padding: '8px 14px',
+    borderRadius: '8px',
+    border: '1px solid rgba(255,255,255,0.22)',
+    background: 'rgba(18, 24, 32, 0.72)',
+    color: '#ffffff',
+    fontFamily: 'system-ui, sans-serif',
+    fontSize: '13px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    backdropFilter: 'blur(6px)'
+})
+modeBtn.addEventListener('click', () => {
+    setViewMode(viewState.mode === 'walk' ? 'god' : 'walk')
+})
+document.body.appendChild(modeBtn)
+
+window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyV') {
+        setViewMode(viewState.mode === 'walk' ? 'god' : 'walk')
+    }
+})
+
 function setViewMode(mode) {
+    viewState.mode = mode
     if (mode === 'walk') {
         TWEEN.removeAll()
         controls.enabled = false
@@ -322,6 +402,19 @@ function setViewMode(mode) {
         controls.enabled = true
     }
     walkHint.style.display = mode === 'walk' ? 'block' : 'none'
+    crosshair.style.display = mode === 'walk' ? 'block' : 'none'
+    modeBtn.textContent = mode === 'walk' ? 'Mode: First Person (V)' : 'Mode: Orbit / God (V)'
+}
+
+setViewMode('walk')
+
+function applyViewportSize(width, height, dpr) {
+    renderer.setPixelRatio(dpr)
+    renderer.setSize(width, height)
+    composer.setPixelRatio(dpr)
+    composer.setSize(width, height)
+    bloomPass.resolution.set(Math.floor(width / 2), Math.floor(height / 2))
+    smaaPass.setSize(Math.floor(width * dpr), Math.floor(height * dpr))
 }
 
 window.addEventListener('resize', () => {
@@ -391,6 +484,7 @@ const clock = new THREE.Clock()
 const baseExposure = renderer.toneMappingExposure
 const viewDir = new THREE.Vector3()
 const sunDir = new THREE.Vector3()
+const sunProj = new THREE.Vector3()
 let lastElapsed = 0
 
 function renderLoop() {
@@ -400,9 +494,22 @@ function renderLoop() {
 
     camera.getWorldDirection(viewDir)
     sunDir.copy(sunPosition).normalize()
-    const facingSun = THREE.MathUtils.smoothstep(viewDir.dot(sunDir), 0.4, 0.95)
+    const sunDot = viewDir.dot(sunDir)
+    const facingSun = THREE.MathUtils.smoothstep(sunDot, 0.4, 0.95)
     const targetExposure = baseExposure * THREE.MathUtils.lerp(1, 0.86, facingSun)
     renderer.toneMappingExposure += (targetExposure - renderer.toneMappingExposure) * (1 - Math.exp(-dt * 2.5))
+
+    // Update volumetric sun god-rays pass only when looking toward the sun
+    if (sunDot > 0.08) {
+        sunProj.copy(camera.position).addScaledVector(sunDir, 2000).project(camera)
+        godRaysPass.uniforms.uSunScreenPos.value.set(sunProj.x * 0.5 + 0.5, sunProj.y * 0.5 + 0.5)
+        godRaysPass.uniforms.uIntensity.value = THREE.MathUtils.smoothstep(sunDot, 0.08, 0.72) * 0.62
+        godRaysPass.uniforms.uRayColor.value.copy(sunLight.color).lerp(new THREE.Color(0xffe0a8), 0.35)
+        godRaysPass.enabled = true
+    } else {
+        godRaysPass.enabled = false
+        godRaysPass.uniforms.uIntensity.value = 0.0
+    }
 
     TWEEN.update()
     if (walk.enabled) walk.update(dt)
