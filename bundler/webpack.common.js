@@ -18,7 +18,7 @@ module.exports = {
             patterns: [
                 { from: path.resolve(__dirname, '../static') },
                 // tree/bush models live in /3d next to the .blend sources
-                { from: path.resolve(__dirname, '../3d'), to: 'models/3d', globOptions: { ignore: ['**/*.blend'] } }
+                { from: path.resolve(__dirname, '../3d'), to: 'models/3d', noErrorOnMissing: true, globOptions: { ignore: ['**/*.blend'] } }
             ]
         }),
         new HtmlWebpackPlugin({

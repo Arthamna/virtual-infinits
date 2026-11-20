@@ -41,18 +41,179 @@ function createLeafCutoutTexture() {
 
 export function createPathLamps({ leftEdge, rightEdge, curbW, spacing = 5 }) {
     const group = new THREE.Group()
-    const cutoutTex = createLeafCutoutTexture()
 
-    const panelMat = new THREE.MeshStandardMaterial({
-        color: 0x1b1c1e,
-        roughness: 0.55,
-        metalness: 0.6,
-        emissive: 0xffc77a,
-        emissiveMap: cutoutTex,
-        emissiveIntensity: 1
+    const colW = 0.44
+    const colH = 3.55
+    const wallT = 0.016
+    const halfW = colW * 0.5
+    const winHalfW = 0.152
+
+    const blackMetalMat = new THREE.MeshStandardMaterial({
+        color: 0x26292c,
+        roughness: 0.62,
+        metalness: 0.38,
+        envMapIntensity: 0.75,
+        side: THREE.DoubleSide
     })
-    const capMat = new THREE.MeshStandardMaterial({ color: 0x1b1c1e, roughness: 0.55, metalness: 0.6 })
-    const baseMat = new THREE.MeshStandardMaterial({ map: createConcreteTexture(1, 1), color: 0x9a9a98, roughness: 0.95 })
+
+    const buildWallGeometry = (includeText, phase) => {
+        const wallShape = new THREE.Shape()
+        wallShape.moveTo(-halfW, 0)
+        wallShape.lineTo(halfW, 0)
+        wallShape.lineTo(halfW, colH)
+        wallShape.lineTo(-halfW, colH)
+        wallShape.closePath()
+
+        // Upper laser-cut tropical foliage window
+        addOrganicLeafPanelHoles(wallShape.holes, -winHalfW, winHalfW, 1.98, 2.98, 8, 4, phase)
+
+        // Middle stencil cutout text: iTS / TEKNO / SAINS using exact InfinITS Park plaque font proportions & skew=0.12
+        if (includeText) {
+            const s = 0.242
+            addStencilTextRowHoles(
+                wallShape.holes,
+                ['iTS_i', 'iTS_T', 'iTS_S'],
+                -winHalfW + 0.015,
+                1.775,
+                0.44 * s,
+                0.38 * s,
+                0.018 * s,
+                0.0
+            )
+            addStencilTextRowHoles(
+                wallShape.holes,
+                ['T', 'E', 'K', 'N', 'O'],
+                -winHalfW + 0.01,
+                1.652,
+                0.28 * s,
+                0.29 * s,
+                0.037 * s,
+                0.12
+            )
+            addStencilTextRowHoles(
+                wallShape.holes,
+                ['S', '^', 'I', 'N', 'S'],
+                -winHalfW - 0.002,
+                1.532,
+                0.28 * s,
+                0.29 * s,
+                0.037 * s,
+                0.12
+            )
+        }
+
+        // Lower laser-cut tropical foliage window
+        addOrganicLeafPanelHoles(wallShape.holes, -winHalfW, winHalfW, 0.56, 1.46, 8, 4, phase + 1.7)
+
+        return new THREE.ExtrudeGeometry(wallShape, {
+            depth: wallT,
+            bevelEnabled: false,
+            curveSegments: 4
+        })
+    }
+
+    const frontWallGeo = buildWallGeometry(true, 0.2)
+    const sideWallGeo = buildWallGeometry(true, 1.1)
+
+    // Front wall (+Z)
+    const frontWall = new THREE.Mesh(frontWallGeo, blackMetalMat)
+    frontWall.position.set(0, 0.08, halfW - wallT)
+    frontWall.castShadow = true
+    frontWall.receiveShadow = true
+    group.add(frontWall)
+
+    // Back wall (-Z)
+    const backWall = new THREE.Mesh(frontWallGeo, blackMetalMat)
+    backWall.rotation.y = Math.PI
+    backWall.position.set(0, 0.08, -halfW + wallT)
+    backWall.castShadow = true
+    backWall.receiveShadow = true
+    group.add(backWall)
+
+    // Left wall (-X)
+    const leftWall = new THREE.Mesh(sideWallGeo, blackMetalMat)
+    leftWall.rotation.y = -Math.PI / 2
+    leftWall.position.set(-halfW + wallT, 0.08, 0)
+    leftWall.castShadow = true
+    leftWall.receiveShadow = true
+    group.add(leftWall)
+
+    // Right wall (+X)
+    const rightWall = new THREE.Mesh(sideWallGeo, blackMetalMat)
+    rightWall.rotation.y = Math.PI / 2
+    rightWall.position.set(halfW - wallT, 0.08, 0)
+    rightWall.castShadow = true
+    rightWall.receiveShadow = true
+    group.add(rightWall)
+
+    // 4 vertical corner seam posts so corners are solid & bevel-sealed
+    const cornerPostGeo = new THREE.BoxGeometry(0.026, colH, 0.026)
+    const cornerOff = halfW - 0.013
+    for (const [cx, cz] of [
+        [-cornerOff, -cornerOff],
+        [cornerOff, -cornerOff],
+        [-cornerOff, cornerOff],
+        [cornerOff, cornerOff]
+    ]) {
+        const post = new THREE.Mesh(cornerPostGeo, blackMetalMat)
+        post.position.set(cx, 0.08 + colH * 0.5, cz)
+        post.castShadow = true
+        post.receiveShadow = true
+        group.add(post)
+    }
+
+    // Flat top cap plate
+    const topCap = new THREE.Mesh(new THREE.BoxGeometry(colW + 0.008, 0.022, colW + 0.008), blackMetalMat)
+    topCap.position.set(0, 0.08 + colH + 0.011, 0)
+    topCap.castShadow = true
+    topCap.receiveShadow = true
+    group.add(topCap)
+
+    // Small base mounting bolts on side faces (as visible near bottom of pillar in photo)
+    const boltGeo = new THREE.CylinderGeometry(0.007, 0.007, 0.45, 8)
+    boltGeo.rotateZ(Math.PI / 2)
+    for (const by of [0.16, 0.52]) {
+        for (const bz of [-halfW + 0.045, halfW - 0.045]) {
+            const bolt = new THREE.Mesh(boltGeo, blackMetalMat)
+            bolt.position.set(0, by, bz)
+            group.add(bolt)
+        }
+    }
+
+    // Square light-grey concrete base pad on the grass
+    const concreteBaseMat = new THREE.MeshStandardMaterial({
+        map: createConcreteTexture(),
+        color: 0xd8dce0,
+        roughness: 0.88,
+        metalness: 0.02
+    })
+    const basePad = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.09, 0.72), concreteBaseMat)
+    basePad.position.set(0, 0.045, 0)
+    basePad.castShadow = true
+    basePad.receiveShadow = true
+    group.add(basePad)
+
+    // Warm inner glowing core shining through the laser-cut leaves & stencil text
+    const innerGlowMat = new THREE.MeshStandardMaterial({
+        color: 0xffdfaa,
+        emissive: 0xffbe66,
+        emissiveIntensity: 1.8,
+        roughness: 0.4,
+        metalness: 0.0
+    })
+    const innerCore = new THREE.Mesh(
+        new THREE.BoxGeometry(colW - wallT * 3, colH - 0.24, colW - wallT * 3),
+        innerGlowMat
+    )
+    innerCore.position.set(0, 0.08 + colH * 0.5, 0)
+    group.add(innerCore)
+
+    group.userData.innerGlowMat = innerGlowMat
+    return group
+}
+
+export function createPathLamps({ leftEdge, rightEdge, curbW, spacing = 10 }) {
+    const group = new THREE.Group()
 
     // walk the path centreline; every `spacing` metres drop a lamp, alternating outer/inner side
     const spots = []
@@ -73,34 +234,80 @@ export function createPathLamps({ leftEdge, rightEdge, curbW, spacing = 5 }) {
     }
     if (spots.length) spots.pop() // last one sits on the ramp landing
 
-    const bodyH = 1.8
-    const bodyW = 0.24
-    const body = new THREE.InstancedMesh(
-        new THREE.BoxGeometry(bodyW, bodyH, bodyW),
-        [panelMat, panelMat, capMat, capMat, panelMat, panelMat],
-        spots.length
-    )
-    const base = new THREE.InstancedMesh(new THREE.BoxGeometry(0.42, 0.1, 0.42), baseMat, spots.length)
-    const d = new THREE.Object3D()
-    spots.forEach(({ x, z, yaw }, i) => {
-        d.rotation.set(0, yaw, 0)
-        d.position.set(x, 0.01, z)
-        d.updateMatrix()
-        base.setMatrixAt(i, d.matrix)
-        d.position.set(x, 0.06 + bodyH / 2, z)
-        d.updateMatrix()
-        body.setMatrixAt(i, d.matrix)
-    })
-    body.castShadow = true
-    body.receiveShadow = true
-    base.receiveShadow = true
-    group.add(base, body)
+    let innerGlowMat = null
+    const pathLights = []
+
+    if (spots.length) {
+        const template = createTeknoSainsBollardLamp()
+        innerGlowMat = template.userData.innerGlowMat
+        template.updateMatrixWorld(true)
+
+        // Group child meshes by geometry so shared parts (posts, bolts, walls) use a single InstancedMesh
+        const partsByGeo = new Map()
+        template.traverse((obj) => {
+            if (!obj.isMesh) return
+            let entry = partsByGeo.get(obj.geometry)
+            if (!entry) {
+                entry = {
+                    geometry: obj.geometry,
+                    material: obj.material,
+                    castShadow: obj.castShadow,
+                    receiveShadow: obj.receiveShadow,
+                    localMatrices: []
+                }
+                partsByGeo.set(obj.geometry, entry)
+            }
+            entry.localMatrices.push(obj.matrixWorld.clone())
+        })
+
+        const lampMat = new THREE.Matrix4()
+        const finalMat = new THREE.Matrix4()
+        const pos = new THREE.Vector3()
+        const quat = new THREE.Quaternion()
+        const scale = new THREE.Vector3(0.75, 0.78, 0.75)
+        const euler = new THREE.Euler()
+
+        for (const part of partsByGeo.values()) {
+            const count = spots.length * part.localMatrices.length
+            const inst = new THREE.InstancedMesh(part.geometry, part.material, count)
+            inst.castShadow = part.castShadow
+            inst.receiveShadow = part.receiveShadow
+
+            let idx = 0
+            for (const { x, z, yaw } of spots) {
+                pos.set(x, -0.04, z)
+                euler.set(0, yaw, 0)
+                quat.setFromEuler(euler)
+                lampMat.compose(pos, quat, scale)
+                for (const localMat of part.localMatrices) {
+                    finalMat.multiplyMatrices(lampMat, localMat)
+                    inst.setMatrixAt(idx++, finalMat)
+                }
+            }
+            inst.instanceMatrix.needsUpdate = true
+            group.add(inst)
+        }
+
+        // Warm PointLights on every 2nd lamp to illuminate the path without hurting FPS
+        for (let i = 0; i < spots.length; i += 2) {
+            const { x, z } = spots[i]
+            const light = new THREE.PointLight(0xffc272, 0, 11, 2.0)
+            light.visible = false
+            light.position.set(x, 1.7, z)
+            group.add(light)
+            pathLights.push(light)
+        }
+    }
 
     return {
         group,
         positions: spots,
         setGlow(v) {
-            panelMat.emissiveIntensity = v
+            if (innerGlowMat) innerGlowMat.emissiveIntensity = Math.max(0.65, v * 1.6)
+            for (let i = 0; i < pathLights.length; i++) {
+                pathLights[i].visible = false
+                pathLights[i].intensity = 0
+            }
         }
     }
 }

@@ -17,14 +17,17 @@ const container = document.createElement('div')
 document.body.appendChild(container)
 
 const scene = new THREE.Scene()
-scene.fog = new THREE.FogExp2(0xe6cfae, 0.0035)
+scene.fog = new THREE.FogExp2(0xe6dfd4, 0.0016)
 
+const MIN_DPR = Math.min(window.devicePixelRatio, 1.35)
+const MAX_DPR = 2
+let currentDpr = Math.min(window.devicePixelRatio, MAX_DPR)
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.outputColorSpace = THREE.SRGBColorSpace
 renderer.toneMapping = THREE.ACESFilmicToneMapping
-renderer.toneMappingExposure = 0.52
+renderer.toneMappingExposure = 0.80
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
 // the scene is static apart from grass sway, so redraw the shadow map only when the sun or the trees change
@@ -69,7 +72,7 @@ function updateEnvironment() {
     envRenderTarget = pmremGenerator.fromScene(sky, 0.04)
     scene.environment = envRenderTarget.texture
 }
-scene.environmentIntensity = 0.45
+scene.environmentIntensity = 0.88
 
 const hemiLight = new THREE.HemisphereLight(0xf5c89a, 0x3a3020, 0.55)
 hemiLight.position.set(0, 30, 0)
@@ -80,15 +83,19 @@ sunLight.target.position.set(-4, 0, -42)
 scene.add(sunLight.target)
 sunLight.castShadow = true
 sunLight.shadow.mapSize.set(4096, 4096)
-sunLight.shadow.camera.near = 5
-sunLight.shadow.camera.far = 230
-sunLight.shadow.camera.left = -72
-sunLight.shadow.camera.right = 72
-sunLight.shadow.camera.top = 64
-sunLight.shadow.camera.bottom = -64
-sunLight.shadow.bias = -0.0004
-sunLight.shadow.normalBias = 0.02
+sunLight.shadow.camera.near = 15
+sunLight.shadow.camera.far = 185 * PARK_SCALE
+sunLight.shadow.camera.left = -44 * PARK_SCALE
+sunLight.shadow.camera.right = 44 * PARK_SCALE
+sunLight.shadow.camera.top = 62 * PARK_SCALE
+sunLight.shadow.camera.bottom = -62 * PARK_SCALE
+sunLight.shadow.bias = -0.0003
+sunLight.shadow.normalBias = 0.014
+sunLight.shadow.radius = 2.4
 scene.add(sunLight)
+
+const skyFillLight = new THREE.DirectionalLight(0x9ec5f8, 0.55)
+scene.add(skyFillLight)
 
 const park = createInfinitsParkScene()
 scene.add(park.group)
@@ -112,7 +119,8 @@ function applyTimeOfDay(hour) {
 
     sunLight.position.set(-4 + sunPosition.x, sunPosition.y, -42 + sunPosition.z)
     sunLight.color.lerpColors(lowSunColor, highSunColor, high)
-    sunLight.intensity = THREE.MathUtils.lerp(0.75, 1.8, high)
+    sunLight.intensity = THREE.MathUtils.lerp(1.15, 2.85, high)
+    skyFillLight.position.set(-sunPosition.x, sunPosition.y * 0.75, -sunPosition.z)
     hemiLight.color.lerpColors(lowSkyColor, highSkyColor, high)
     hemiLight.intensity = THREE.MathUtils.lerp(0.45, 0.65, high)
     scene.fog.color.lerpColors(lowFogColor, highFogColor, high)
@@ -127,7 +135,7 @@ park.vegetation.addEventListener('loaded', () => {
     renderer.shadowMap.needsUpdate = true
 })
 
-const timeOfDay = { hour: 17.5 } // matches the previous fixed orange afternoon sun
+const timeOfDay = { hour: 15.6 } // always sunny midday
 applyTimeOfDay(timeOfDay.hour)
 updateEnvironment()
 
@@ -393,7 +401,7 @@ function renderLoop() {
     camera.getWorldDirection(viewDir)
     sunDir.copy(sunPosition).normalize()
     const facingSun = THREE.MathUtils.smoothstep(viewDir.dot(sunDir), 0.4, 0.95)
-    const targetExposure = baseExposure * THREE.MathUtils.lerp(1, 0.6, facingSun)
+    const targetExposure = baseExposure * THREE.MathUtils.lerp(1, 0.86, facingSun)
     renderer.toneMappingExposure += (targetExposure - renderer.toneMappingExposure) * (1 - Math.exp(-dt * 2.5))
 
     TWEEN.update()
