@@ -190,11 +190,11 @@ export function createParkPaths({
     fullWalkwayGeo.setIndex(lpIdx)
     const lakePathPBR = createPavingPBRMaps(3, 3, false)
     const lakePathMat = new THREE.MeshStandardMaterial({
-        map: createPavingTexture(3, 3, true),
+        map: createPavingTexture(3, 3, false),
         normalMap: lakePathPBR.normalMap,
-        normalScale: new THREE.Vector2(0.85, 0.85),
+        normalScale: new THREE.Vector2(1.45, 1.45),
         aoMap: lakePathPBR.aoMap,
-        aoMapIntensity: 0.65,
+        aoMapIntensity: 0.85,
         roughnessMap: lakePathPBR.roughnessMap,
         roughness: 0.85,
         metalness: 0.03

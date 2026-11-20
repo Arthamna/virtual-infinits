@@ -246,8 +246,8 @@ export function createParkLake(grassTex) {
                 float reflectance = 0.03 + 0.97 * pow(1.0 - theta, 4.5);
                 vec3 R = reflect(-V, N);
                 float skyGrad = clamp(R.y * 1.4, 0.0, 1.0);
-                vec3 horizonCol = mix(vec3(0.62, 0.74, 0.86), uSunColor * 0.92, 0.32);
-                vec3 reflectionSample = mix(horizonCol, vec3(0.24, 0.43, 0.68), skyGrad);
+                vec3 horizonCol = mix(vec3(0.84, 0.48, 0.32), uSunColor * 1.05, 0.55);
+                vec3 reflectionSample = mix(horizonCol, vec3(0.18, 0.26, 0.50), skyGrad);
 
                 vec3 col = mix(waterBody, reflectionSample, reflectance * 0.78);
 

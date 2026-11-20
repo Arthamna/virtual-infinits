@@ -100,59 +100,103 @@ export function createParkGrass({
 
 
 
-    // 1. 3D Animated Lawn Grass Tuft Blades (18,000 instances, 1 draw call)
+    // 1. Lush Dense Curved-Blade Meadow Grass (32,000 7-blade clumps = 224,000 curved blades in 1 draw call)
+    const tuftPositions = []
+    const tuftNormals = []
+    const tuftIndices = []
+    const bladesPerClump = 7
+    const bladeSegs = 3
+    for (let b = 0; b < bladesPerClump; b++) {
+        const ang = (b / bladesPerClump) * Math.PI * 2 + (b % 2) * 0.31
+        const ox = b === 0 ? 0 : Math.cos(ang) * (0.14 + (b % 3) * 0.06)
+        const oz = b === 0 ? 0 : Math.sin(ang) * (0.14 + (b % 3) * 0.06)
+        const leanAng = ang + 0.35 + (b % 2) * 0.4
+        const cosL = Math.cos(leanAng)
+        const sinL = Math.sin(leanAng)
+        const perpX = -sinL
+        const perpZ = cosL
+
+        const bladeH = 0.44 + (b % 3) * 0.09
+        const baseHalfW = 0.034 + (b % 2) * 0.008
+        const bend = 0.16 + (b % 3) * 0.05
+        const vBase = tuftPositions.length / 3
+
+        for (let s = 0; s < bladeSegs; s++) {
+            const t = s / bladeSegs
+            const y = bladeH * t
+            const hw = baseHalfW * (1.0 - t * 0.72)
+            const curve = bend * t * t
+            const cx = ox + cosL * curve
+            const cz = oz + sinL * curve
+            // Tilt normal slightly upward and outward for smooth sunlit shading across the blade
+            const nx = cosL * 0.35
+            const ny = 0.88
+            const nz = sinL * 0.35
+
+            tuftPositions.push(
+                cx - perpX * hw, y, cz - perpZ * hw,
+                cx + perpX * hw, y, cz + perpZ * hw
+            )
+            tuftNormals.push(nx, ny, nz, nx, ny, nz)
+        }
+        // Sharp pointed tip
+        tuftPositions.push(ox + cosL * bend, bladeH, oz + sinL * bend)
+        tuftNormals.push(cosL * 0.25, 0.94, sinL * 0.25)
+
+        for (let s = 0; s < bladeSegs - 1; s++) {
+            const row = vBase + s * 2
+            tuftIndices.push(row, row + 1, row + 2, row + 1, row + 3, row + 2)
+        }
+        const topRow = vBase + (bladeSegs - 1) * 2
+        tuftIndices.push(topRow, topRow + 1, topRow + 2)
+    }
+
     const tuftGeo = new THREE.BufferGeometry()
-    const tuftVerts = new Float32Array([
-        // Blade A
-        -0.024, 0.0, 0.0,
-         0.024, 0.0, 0.0,
-        -0.015, 0.14, 0.010,
-         0.015, 0.14, 0.010,
-         0.0,   0.28, 0.030,
-        // Blade B (crossed)
-        -0.008, 0.0, -0.022,
-         0.008, 0.0,  0.022,
-        -0.005, 0.13, -0.014,
-         0.005, 0.13,  0.014,
-         0.025, 0.26,  0.0
-    ])
-    tuftGeo.setAttribute('position', new THREE.BufferAttribute(tuftVerts, 3))
-    tuftGeo.setIndex([
-        0, 1, 2,  1, 3, 2,  2, 3, 4,
-        5, 6, 7,  6, 8, 7,  7, 8, 9
-    ])
-    tuftGeo.computeVertexNormals()
+    tuftGeo.setAttribute('position', new THREE.Float32BufferAttribute(tuftPositions, 3))
+    tuftGeo.setAttribute('normal', new THREE.Float32BufferAttribute(tuftNormals, 3))
+    tuftGeo.setIndex(tuftIndices)
 
     const bladeMat = new THREE.MeshStandardMaterial({
         color: 0xffffff,
-        roughness: 0.85,
+        roughness: 0.76,
         metalness: 0.0,
         side: THREE.DoubleSide
     })
     bladeMat.onBeforeCompile = (shader) => {
         shader.uniforms.uTime = grassWindUniforms.uTime
         shader.uniforms.uWind = grassWindUniforms.uWind
-        shader.vertexShader = "uniform float uTime;\nuniform float uWind;\nvarying float vBladeTip;\n" + shader.vertexShader
+        shader.vertexShader = "uniform float uTime;\nuniform float uWind;\nvarying float vBladeTip;\nvarying float vWindWave;\n" + shader.vertexShader
         shader.vertexShader = shader.vertexShader.replace(
             "#include <begin_vertex>",
             `#include <begin_vertex>
-            float tipFactor = clamp(position.y / 0.28, 0.0, 1.0);
+            float tipFactor = clamp(position.y / 0.56, 0.0, 1.0);
             vBladeTip = tipFactor;
             vec4 instWorld = vec4(0.0, 0.0, 0.0, 1.0);
             #ifdef USE_INSTANCING
                 instWorld = instanceMatrix * instWorld;
             #endif
-            float sway = sin(uTime * 1.9 + instWorld.x * 0.28 + instWorld.z * 0.24) * 0.048 * uWind * tipFactor * tipFactor;
+            float gustWave = sin(uTime * 2.1 + instWorld.x * 0.16 + instWorld.z * 0.13)
+                           + 0.45 * sin(uTime * 3.4 - instWorld.x * 0.27 + instWorld.z * 0.21);
+            vWindWave = gustWave * 0.5 + 0.5;
+            float sway = gustWave * 0.095 * uWind * tipFactor * tipFactor;
             transformed.x += sway;
-            transformed.z += sway * 0.5;`
+            transformed.z += sway * 0.55;
+            transformed.y -= abs(sway) * 0.22 * tipFactor;`
         )
-        shader.fragmentShader = "varying float vBladeTip;\n" + shader.fragmentShader
+        shader.fragmentShader = "varying float vBladeTip;\nvarying float vWindWave;\n" + shader.fragmentShader
         shader.fragmentShader = shader.fragmentShader.replace(
             "#include <color_fragment>",
             `#include <color_fragment>
-            float ao = mix(0.40, 1.14, pow(vBladeTip, 0.72));
-            diffuseColor.rgb *= ao;
-            diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.12, 1.10, 0.84), smoothstep(0.55, 1.0, vBladeTip) * 0.55);`
+            // Deep forest-green roots transitioning smoothly to bright luminous lime-yellow sunlit tips
+            vec3 rootCol = vec3(0.09, 0.24, 0.05);
+            vec3 midCol  = vec3(0.28, 0.54, 0.11);
+            vec3 tipCol  = vec3(0.68, 0.86, 0.19);
+            vec3 grad = vBladeTip < 0.48
+                ? mix(rootCol, midCol, vBladeTip / 0.48)
+                : mix(midCol, tipCol, (vBladeTip - 0.48) / 0.52);
+            // Subtle brightness shimmer along rolling wind waves
+            grad *= 0.92 + 0.16 * vWindWave * vBladeTip;
+            diffuseColor.rgb = grad * mix(vec3(0.88), diffuseColor.rgb * 1.18, 0.45);`
         )
     }
 
@@ -162,12 +206,12 @@ export function createParkGrass({
         return seed / 4294967296
     }
 
-    const maxGrassBlades = 18000
+    const maxGrassBlades = 32000
     const grassBlades = new THREE.InstancedMesh(tuftGeo, bladeMat, maxGrassBlades)
     grassBlades.receiveShadow = true
     const dummy = new THREE.Object3D()
     const instColor = new THREE.Color()
-    const grassPalette = [0x5c8c38, 0x6d9e42, 0x7eab4c, 0x4e7a2e, 0x8fb348]
+    const grassPalette = [0xb2d848, 0x9ec93c, 0xc4e258, 0x8bb834, 0xd0e864]
 
     let placedBlades = 0
     let attempts = 0
@@ -178,9 +222,9 @@ export function createParkGrass({
         if (isBlockedGrassPos(x, z)) continue
 
         dummy.position.set(x, -0.04, z)
-        dummy.rotation.set((nextRand() - 0.5) * 0.18, nextRand() * Math.PI * 2, (nextRand() - 0.5) * 0.18)
-        const sXZ = 0.85 + nextRand() * 0.70
-        const sY = 0.80 + nextRand() * 0.90
+        dummy.rotation.set((nextRand() - 0.5) * 0.14, nextRand() * Math.PI * 2, (nextRand() - 0.5) * 0.14)
+        const sXZ = 0.85 + nextRand() * 0.65
+        const sY = 0.78 + nextRand() * 0.72
         dummy.scale.set(sXZ, sY, sXZ)
         dummy.updateMatrix()
         grassBlades.setMatrixAt(placedBlades, dummy.matrix)
@@ -379,5 +423,5 @@ export function createParkGrass({
     flowerInst.computeBoundingSphere()
     group.add(flowerInst)
 
-    return { group, grassWindUniforms, isBlocked: isBlockedGrassPos }
+    return { group, groundMesh: grass, grassWindUniforms, isBlocked: isBlockedGrassPos }
 }

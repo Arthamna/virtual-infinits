@@ -61,20 +61,73 @@ export function createInfinitsParkScene() {
     }
 
     const grassTex = createGrassTexture()
-    grassTex.repeat.set(0.25, 0.25)
+    grassTex.repeat.set(0.32, 0.32)
     const grassMat = new THREE.MeshStandardMaterial({
         map: grassTex,
         bumpMap: grassTex,
-        bumpScale: 0.035,
-        color: 0xe2ecd2,
+        bumpScale: 0.085,
+        roughnessMap: grassTex,
+        color: 0xe6ebd8,
         roughness: 0.94,
         metalness: 0.0,
-        envMapIntensity: 0.35
+        envMapIntensity: 0.38
     })
+    // Break up tile repetition with macro world-space soil, dry thatch, and damp moss patches
+    grassMat.onBeforeCompile = (shader) => {
+        shader.vertexShader = shader.vertexShader
+            .replace(
+                '#include <common>',
+                '#include <common>\nvarying vec3 vGroundWorldPos;'
+            )
+            .replace(
+                '#include <worldpos_vertex>',
+                `#include <worldpos_vertex>
+                vGroundWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+            )
+        shader.fragmentShader = shader.fragmentShader
+            .replace(
+                '#include <common>',
+                `#include <common>
+                varying vec3 vGroundWorldPos;
+                float gHash(vec2 p) {
+                    p = fract(p * vec2(123.34, 456.21));
+                    p += dot(p, p + 45.32);
+                    return fract(p.x * p.y);
+                }
+                float gNoise(vec2 p) {
+                    vec2 i = floor(p);
+                    vec2 f = fract(p);
+                    f = f * f * (3.0 - 2.0 * f);
+                    return mix(
+                        mix(gHash(i), gHash(i + vec2(1.0, 0.0)), f.x),
+                        mix(gHash(i + vec2(0.0, 1.0)), gHash(i + vec2(1.0, 1.0)), f.x),
+                        f.y
+                    );
+                }`
+            )
+            .replace(
+                '#include <map_fragment>',
+                `#include <map_fragment>
+                vec2 gPos = vGroundWorldPos.xz;
+                float nMacro = gNoise(gPos * 0.065) * 0.6 + gNoise(gPos * 0.19) * 0.4;
+                float nDetail = gNoise(gPos * 0.65);
+
+                // Exposed brown earth / worn soil patches
+                float soilMask = smoothstep(0.60, 0.84, nMacro) * (0.65 + 0.35 * nDetail);
+                // Sun-dried golden thatch patches
+                float dryMask = smoothstep(0.50, 0.76, gNoise(gPos * 0.09 + vec2(14.3, -8.7)));
+                // Damp darker mossy/loam patches
+                float dampMask = smoothstep(0.24, 0.48, 1.0 - nMacro);
+
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.36, 0.27, 0.17), soilMask * 0.68);
+                diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.46, 0.42, 0.22), dryMask * 0.32);
+                diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.76, 0.84, 0.70), dampMask * 0.40);`
+            )
+    }
 
     const walkwayPBR = createPavingPBRMaps(5, 2, false)
     const walkwayMat = new THREE.MeshStandardMaterial({
-        map: createPavingTexture(5, 2),
+        map: createPavingTexture(5, 2, true),
         normalMap: walkwayPBR.normalMap,
         normalScale: new THREE.Vector2(1.35, 1.35),
         aoMap: walkwayPBR.aoMap,
@@ -182,10 +235,10 @@ export function createInfinitsParkScene() {
         group,
         vegetation,
         walk: {
-            walkables: [plaza.group, paths.walkwayMesh],
+            walkables: [plaza.group, paths.walkwayMesh, grass.groundMesh],
             obstacles: [railingsGroup, signage, totem, lamps.group, lampPosts.group],
-            start: paths.curveSamples[16].pt.clone(),
-            startDir: paths.curveSamples[16].tan.clone()
+            start: new THREE.Vector3(-2.5, 0, 5.2),
+            startDir: new THREE.Vector3(0.12, 0, -1).normalize()
         },
         update(elapsed = 0) {
             grass.grassWindUniforms.uTime.value = elapsed
