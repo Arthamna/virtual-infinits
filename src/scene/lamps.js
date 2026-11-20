@@ -228,11 +228,8 @@ export function createTeknoSainsBollardLamp() {
 
         return new THREE.ExtrudeGeometry(wallShape, {
             depth: wallT,
-            bevelEnabled: true,
-            bevelThickness: 0.002,
-            bevelSize: 0.0015,
-            bevelSegments: 1,
-            curveSegments: 8
+            bevelEnabled: false,
+            curveSegments: 4
         })
     }
 
@@ -415,7 +412,8 @@ export function createPathLamps({ leftEdge, rightEdge, curbW, spacing = 10 }) {
         // Warm PointLights on every 2nd lamp to illuminate the path without hurting FPS
         for (let i = 0; i < spots.length; i += 2) {
             const { x, z } = spots[i]
-            const light = new THREE.PointLight(0xffc272, 1.6, 11, 2.0)
+            const light = new THREE.PointLight(0xffc272, 0, 11, 2.0)
+            light.visible = false
             light.position.set(x, 1.7, z)
             group.add(light)
             pathLights.push(light)
@@ -426,9 +424,10 @@ export function createPathLamps({ leftEdge, rightEdge, curbW, spacing = 10 }) {
         group,
         positions: spots,
         setGlow(v) {
-            if (innerGlowMat) innerGlowMat.emissiveIntensity = Math.max(0.45, v * 1.4)
+            if (innerGlowMat) innerGlowMat.emissiveIntensity = Math.max(0.65, v * 1.6)
             for (let i = 0; i < pathLights.length; i++) {
-                pathLights[i].intensity = Math.max(0.35, v * 1.2)
+                pathLights[i].visible = false
+                pathLights[i].intensity = 0
             }
         }
     }

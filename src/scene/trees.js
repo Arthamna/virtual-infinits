@@ -383,12 +383,17 @@ function upgradeBarkToPBR(tree) {
 
     const configureTex = (tex, isColor = false) => {
         if (!tex) return null
-        return configureTexture(tex, { isColor, repeat: true })
+        return configureTexture(tex, {
+            isColor,
+            repeat: true,
+            repeatX: tex.repeat?.x || 1,
+            repeatY: tex.repeat?.y || 1
+        })
     }
 
     const pbrBarkMat = new THREE.MeshStandardMaterial({
         name: 'branches_pbr',
-        color: new THREE.Color(0xc8beb0),
+        color: tree.options?.bark?.type === 'birch' ? new THREE.Color(0xe6e4de) : new THREE.Color(0xc8beb0),
         map: configureTex(oldMat.map, true),
         normalMap: configureTex(oldMat.normalMap, false),
         normalScale: new THREE.Vector2(2.8, 2.8),
@@ -493,10 +498,10 @@ function applyLakesideSCurve(tree, minY, rawHeight, reach = 0.50) {
     }
 }
 
-function styleTreeMeshes(tree) {
+function styleTreeMeshes(tree, { minY = 0, maxY = 10, maxR = 5 } = {}) {
     if (tree.branchesMesh) {
         tree.branchesMesh.castShadow = true
-        tree.branchesMesh.receiveShadow = true
+        tree.branchesMesh.receiveShadow = false
     }
     if (tree.leavesMesh) {
         tree.leavesMesh.userData.noAO = true
@@ -513,12 +518,39 @@ function styleTreeMeshes(tree) {
             const prevCompile = leafMat.onBeforeCompile
             leafMat.onBeforeCompile = (shader, renderer) => {
                 if (prevCompile) prevCompile(shader, renderer)
-                shader.vertexShader = shader.vertexShader.replace(
-                    "mvPosition = modelViewMatrix * mvPosition;",
-                    "#ifdef USE_INSTANCING\n    mvPosition = instanceMatrix * mvPosition;\n#endif\nmvPosition = modelViewMatrix * mvPosition;"
-                )
+                shader.uniforms.uCrownMinY = { value: minY }
+                shader.uniforms.uCrownMaxY = { value: maxY }
+                shader.uniforms.uCrownMaxR = { value: maxR }
+
+                shader.vertexShader =
+                    "uniform float uCrownMinY;\nuniform float uCrownMaxY;\nuniform float uCrownMaxR;\nvarying float vCrownShade;\n" +
+                    shader.vertexShader
+                        .replace(
+                            "#include <begin_vertex>",
+                            `#include <begin_vertex>
+                            float cH = clamp((position.y - uCrownMinY) / max(0.01, uCrownMaxY - uCrownMinY), 0.0, 1.0);
+                            float cR = clamp(length(position.xz) / max(0.01, uCrownMaxR), 0.0, 1.0);
+                            vCrownShade = clamp((0.40 + 0.60 * cH) * (0.58 + 0.42 * cR), 0.34, 1.08);`
+                        )
+                        .replace(
+                            /float windOffset = 2\.0 \* 3\.14 \* simplex3[\s\S]*?vec3 windSway =[\s\S]*?\);/,
+                            "float windOffset = dot(mvPosition.xyz, vec3(0.14, 0.09, 0.16));\n        vec3 windSway = uv.y * uWindStrength * sin(uTime * uWindFrequency * 1.6 + windOffset) * 0.85;"
+                        )
+                        .replace(
+                            "mvPosition = modelViewMatrix * mvPosition;",
+                            "#ifdef USE_INSTANCING\n    mvPosition = instanceMatrix * mvPosition;\n#endif\nmvPosition = modelViewMatrix * mvPosition;"
+                        )
+
+                shader.fragmentShader =
+                    "varying float vCrownShade;\n" +
+                    shader.fragmentShader.replace(
+                        "#include <color_fragment>",
+                        `#include <color_fragment>
+                        diffuseColor.rgb *= vCrownShade;
+                        diffuseColor.rgb += vec3(0.11, 0.12, 0.02) * smoothstep(0.68, 1.05, vCrownShade);`
+                    )
             }
-            leafMat.customProgramCacheKey = () => "ez-tree-instanced-leaves"
+            leafMat.customProgramCacheKey = () => "ez-tree-instanced-leaves-shaded"
             leafMat.needsUpdate = true
         }
         tree.leavesMesh.customDepthMaterial = new THREE.MeshDepthMaterial({
@@ -568,8 +600,8 @@ export function createRealisticParkTrees({ isBlocked } = {}) {
         return dx * dx + dz * dz < 1.0
     }
 
-    const minSpacingSq = 4.6 * 4.6
-    const targetTotal = 85
+    const minSpacingSq = 5.4 * 5.4
+    const targetTotal = 60
     let attempts = 0
     while (parkTreeSpecs.length < targetTotal && attempts < 3000) {
         attempts++
@@ -602,10 +634,46 @@ export function createRealisticParkTrees({ isBlocked } = {}) {
         })
     }
 
-    // Group placements by preset archetype and render with InstancedMesh (only 11 draw pairs for all 85 trees)
+
+    // Add 54 varied ez-tree bushes (Bush 1, Bush 2, Bush 3) across lawns & along the outer jogging path
+    const bushPresets = ['Bush 1', 'Bush 2', 'Bush 3']
+    const bushTints = [0xdcf7b8, 0xcbeeb0, 0xeaf7b2, 0xbfe3a8, 0xf2e8a0]
+    const bushSpecs = []
+    const bushSpacingSq = 2.4 * 2.4
+    let bushAttempts = 0
+    while (bushSpecs.length < 54 && bushAttempts < 2400) {
+        bushAttempts++
+        const x = -39.5 + nextRand() * 82.0
+        const z = -117.5 + nextRand() * 114.0
+        if (isBlocked && isBlocked(x, z)) continue
+
+        let tooClose = false
+        for (let i = 0; i < bushSpecs.length; i++) {
+            const dx = bushSpecs[i].x - x
+            const dz = bushSpecs[i].z - z
+            if (dx * dx + dz * dz < bushSpacingSq) {
+                tooClose = true
+                break
+            }
+        }
+        if (tooClose) continue
+
+        bushSpecs.push({
+            x,
+            z,
+            targetHeight: 1.2 + nextRand() * 1.6,
+            rotY: nextRand() * Math.PI * 2,
+            seed: 900 + bushSpecs.length * 13,
+            preset: bushPresets[Math.floor(nextRand() * bushPresets.length)],
+            tint: bushTints[Math.floor(nextRand() * bushTints.length)]
+        })
+    }
+
+    const allTreeAndBushSpecs = parkTreeSpecs.concat(bushSpecs)
+    // Group placements by preset archetype and render with InstancedMesh
     const grouped = new Map()
-    for (let i = 0; i < parkTreeSpecs.length; i++) {
-        const spec = parkTreeSpecs[i]
+    for (let i = 0; i < allTreeAndBushSpecs.length; i++) {
+        const spec = allTreeAndBushSpecs[i]
         const key = spec.preset
         if (!grouped.has(key)) grouped.set(key, [])
         grouped.get(key).push(spec)
@@ -642,12 +710,12 @@ export function createRealisticParkTrees({ isBlocked } = {}) {
             tree.options.leaves.size *= 1.15
 
             tree.generate()
-            if (tree.branchesMesh?.material?.map) {
-                configureTexture(tree.branchesMesh.material.map, { isColor: true, repeat: true })
-            }
+            upgradeBarkToPBR(tree)
         }
 
-        styleTreeMeshes(tree)
+        bbox.setFromObject(tree)
+        const maxR = Math.max(0.5, Math.abs(bbox.max.x), Math.abs(bbox.min.x), Math.abs(bbox.max.z), Math.abs(bbox.min.z))
+        styleTreeMeshes(tree, { minY: bbox.min.y, maxY: bbox.max.y, maxR })
         bbox.setFromObject(tree)
         const finalRawHeight = Math.max(0.01, bbox.max.y - bbox.min.y)
         const minY = bbox.min.y
@@ -658,7 +726,7 @@ export function createRealisticParkTrees({ isBlocked } = {}) {
             specs.length
         )
         branchInst.castShadow = true
-        branchInst.receiveShadow = true
+        branchInst.receiveShadow = false
 
         const leafInst = new THREE.InstancedMesh(
             tree.leavesMesh.geometry,
@@ -695,21 +763,35 @@ export function createRealisticParkTrees({ isBlocked } = {}) {
     }
 
 
-    // 4 spaced-out, uniquely shaped S-curved overhanging trees on the left & right lake waist peninsulas
-    const lakesideSpecs = [
-        { x: -21.2, z: -45.5, targetHeight: 15.0, rotY: 0.25, seed: 501, preset: 'Oak Large', reach: 0.48, tint: 0xcbeeb0 },
-        { x: -19.8, z: -61.5, targetHeight: 16.5, rotY: -0.22, seed: 512, preset: 'Ash Large', reach: 0.40, tint: 0xdcf7b8 },
-        { x: 10.6, z: -45.5, targetHeight: 14.2, rotY: Math.PI - 0.28, seed: 523, preset: 'Oak Medium', reach: 0.52, tint: 0xd4f2b4 },
-        { x: 9.2, z: -61.5, targetHeight: 16.2, rotY: Math.PI + 0.22, seed: 537, preset: 'Oak Large', reach: 0.36, tint: 0xe3f7ba }
+    // 4 spaced-out S-curved overhanging trees rendered via 2 InstancedMesh templates (Oak Large & Ash Large)
+    const lakesideGroups = [
+        {
+            preset: 'Oak Large',
+            seed: 501,
+            reach: 0.48,
+            instances: [
+                { x: -21.2, z: -45.5, targetHeight: 15.0, rotY: 0.25, tint: 0xcbeeb0 },
+                { x: 9.2, z: -61.5, targetHeight: 16.2, rotY: Math.PI + 0.22, tint: 0xe3f7ba }
+            ]
+        },
+        {
+            preset: 'Ash Large',
+            seed: 512,
+            reach: 0.42,
+            instances: [
+                { x: -19.8, z: -61.5, targetHeight: 16.5, rotY: -0.22, tint: 0xdcf7b8 },
+                { x: 10.6, z: -45.5, targetHeight: 14.4, rotY: Math.PI - 0.28, tint: 0xd4f2b4 }
+            ]
+        }
     ]
 
-    for (let i = 0; i < lakesideSpecs.length; i++) {
-        const spec = lakesideSpecs[i]
-        const presetData = TreePreset[spec.preset] || TreePreset['Oak Large']
+    for (let g = 0; g < lakesideGroups.length; g++) {
+        const grp = lakesideGroups[g]
+        const presetData = TreePreset[grp.preset] || TreePreset['Oak Large']
         const lakeTree = new Tree()
         lakeTree.options.copy(structuredClone(presetData))
-        lakeTree.options.seed = spec.seed
-        lakeTree.options.leaves.tint = spec.tint
+        lakeTree.options.seed = grp.seed
+        lakeTree.options.leaves.tint = 0xffffff
 
         for (const lvl of Object.keys(lakeTree.options.branch.sections)) {
             lakeTree.options.branch.sections[lvl] = Math.max(2, Math.round(lakeTree.options.branch.sections[lvl] * 0.78))
@@ -723,20 +805,55 @@ export function createRealisticParkTrees({ isBlocked } = {}) {
 
         bbox.setFromObject(lakeTree)
         const rawH = Math.max(0.01, bbox.max.y - bbox.min.y)
-        applyLakesideSCurve(lakeTree, bbox.min.y, rawH, spec.reach)
-        if (lakeTree.branchesMesh?.material?.map) {
-            configureTexture(lakeTree.branchesMesh.material.map, { isColor: true, repeat: true })
-        }
-        styleTreeMeshes(lakeTree)
+        applyLakesideSCurve(lakeTree, bbox.min.y, rawH, grp.reach)
+        upgradeBarkToPBR(lakeTree)
+        bbox.setFromObject(lakeTree)
+        const lMaxR = Math.max(0.5, Math.abs(bbox.max.x), Math.abs(bbox.min.x), Math.abs(bbox.max.z), Math.abs(bbox.min.z))
+        styleTreeMeshes(lakeTree, { minY: bbox.min.y, maxY: bbox.max.y, maxR: lMaxR })
 
         bbox.setFromObject(lakeTree)
         const finalH = Math.max(0.01, bbox.max.y - bbox.min.y)
-        const sc = spec.targetHeight / finalH
-        lakeTree.scale.setScalar(sc)
-        lakeTree.position.set(spec.x, -bbox.min.y * sc - 0.03, spec.z)
-        lakeTree.rotation.y = spec.rotY
+        const minY = bbox.min.y
 
-        group.add(lakeTree)
+        const lBranchInst = new THREE.InstancedMesh(
+            lakeTree.branchesMesh.geometry,
+            lakeTree.branchesMesh.material,
+            grp.instances.length
+        )
+        lBranchInst.castShadow = true
+        lBranchInst.receiveShadow = false
+
+        const lLeafInst = new THREE.InstancedMesh(
+            lakeTree.leavesMesh.geometry,
+            lakeTree.leavesMesh.material,
+            grp.instances.length
+        )
+        lLeafInst.userData.noAO = true
+        lLeafInst.castShadow = true
+        lLeafInst.receiveShadow = false
+        lLeafInst.customDepthMaterial = lakeTree.leavesMesh.customDepthMaterial
+
+        for (let i = 0; i < grp.instances.length; i++) {
+            const inst = grp.instances[i]
+            const sc = inst.targetHeight / finalH
+            dummy.position.set(inst.x, -minY * sc - 0.03, inst.z)
+            dummy.rotation.set(0, inst.rotY, 0)
+            dummy.scale.setScalar(sc)
+            dummy.updateMatrix()
+
+            lBranchInst.setMatrixAt(i, dummy.matrix)
+            lLeafInst.setMatrixAt(i, dummy.matrix)
+            tintColor.setHex(inst.tint)
+            lLeafInst.setColorAt(i, tintColor)
+        }
+
+        lBranchInst.instanceMatrix.needsUpdate = true
+        lLeafInst.instanceMatrix.needsUpdate = true
+        if (lLeafInst.instanceColor) lLeafInst.instanceColor.needsUpdate = true
+        lBranchInst.computeBoundingSphere()
+        lLeafInst.computeBoundingSphere()
+
+        group.add(lBranchInst, lLeafInst)
         trees.push(lakeTree)
     }
 

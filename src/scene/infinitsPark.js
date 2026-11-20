@@ -34,6 +34,31 @@ export function createInfinitsParkScene() {
         metalness: 0.02,
         envMapIntensity: 0.42
     })
+    concreteMat.onBeforeCompile = (shader) => {
+        shader.vertexShader = shader.vertexShader
+            .replace(
+                "#include <common>",
+                "#include <common>\nvarying float vConcY;\nvarying float vConcUp;"
+            )
+            .replace(
+                "#include <worldpos_vertex>",
+                `#include <worldpos_vertex>
+                vConcY = (modelMatrix * vec4(transformed, 1.0)).y;
+                vConcUp = normalize(mat3(modelMatrix) * objectNormal).y;`
+            )
+        shader.fragmentShader = shader.fragmentShader
+            .replace(
+                "#include <common>",
+                "#include <common>\nvarying float vConcY;\nvarying float vConcUp;"
+            )
+            .replace(
+                "#include <color_fragment>",
+                `#include <color_fragment>
+                float contactAo = mix(0.76, 1.0, smoothstep(0.12, 0.55, vConcY));
+                float skyBounce = mix(0.92, 1.06, clamp(vConcUp * 0.5 + 0.5, 0.0, 1.0));
+                diffuseColor.rgb *= contactAo * skyBounce;`
+            )
+    }
 
     const grassTex = createGrassTexture()
     grassTex.repeat.set(0.25, 0.25)

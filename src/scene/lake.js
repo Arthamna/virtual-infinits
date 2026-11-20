@@ -1,5 +1,4 @@
 import * as THREE from 'three'
-import { Water } from 'three/examples/jsm/objects/Water.js'
 import { createConcreteTexture, createLakeBedTexture, createWaterNormalTexture } from './textures'
 
 export function createParkLake(grassTex) {
@@ -115,26 +114,167 @@ export function createParkLake(grassTex) {
     lakeBedMesh.position.y = -2.6
     group.add(lakeBedMesh)
 
-    const lakeGeo = new THREE.ShapeGeometry(lakeShape)
-    lakeGeo.rotateX(-Math.PI / 2)
-    const lakeWater = new Water(lakeGeo, {
-        textureWidth: 1024,
-        textureHeight: 1024,
-        waterNormals: createWaterNormalTexture(),
-        sunDirection: new THREE.Vector3(0.4, 0.7, 0.3).normalize(),
-        sunColor: 0xfff5e0,
-        waterColor: 0x166d78,
-        distortionScale: 1.4,
-        fog: false
+    const { geometry: lakeGeo } = buildPhysicalLakeWater(lakePts)
+    const waterUniforms = {
+        uNormalMap: { value: createWaterNormalTexture() },
+        uTime: { value: 0 },
+        uDistortion: { value: 1.0 },
+        uSunDir: { value: new THREE.Vector3(0.4, 0.7, 0.3).normalize() },
+        uSunColor: { value: new THREE.Color(0xfff5e0) }
+    }
+    const lakeWaterMat = new THREE.ShaderMaterial({
+        uniforms: waterUniforms,
+        transparent: true,
+        depthWrite: false,
+        vertexShader: `
+            attribute float aShore;
+            uniform float uTime;
+            uniform float uDistortion;
+            varying vec3 vWorldPos;
+            varying vec3 vWaveNormal;
+            varying float vCrest;
+            varying float vShore;
+
+            vec3 gerstnerWave(
+                vec2 pos,
+                vec2 dir,
+                float steepness,
+                float wavelength,
+                float speedScale,
+                inout vec3 tangent,
+                inout vec3 binormal
+            ) {
+                float k = 6.28318530718 / wavelength;
+                float c = sqrt(9.81 / k) * speedScale;
+                vec2 d = normalize(dir);
+                vec2 perp = vec2(-d.y, d.x);
+                float crossMod = sin(dot(perp, pos) * k * 0.48 + uTime * 0.65) * 0.85
+                               + cos(dot(perp, pos) * k * 0.23 - uTime * 0.42) * 0.55;
+                float f = k * (dot(d, pos) - c * uTime) + crossMod;
+                float a = steepness / k;
+                float sf = sin(f);
+                float cf = cos(f);
+
+                tangent += vec3(
+                    -d.x * d.x * steepness * sf,
+                    d.x * steepness * cf,
+                    -d.x * d.y * steepness * sf
+                );
+                binormal += vec3(
+                    -d.x * d.y * steepness * sf,
+                    d.y * steepness * cf,
+                    -d.y * d.y * steepness * sf
+                );
+
+                return vec3(d.x * (a * cf), a * sf, d.y * (a * cf));
+            }
+
+            void main() {
+                vShore = aShore;
+                float shoreDamp = smoothstep(0.0, 2.6, aShore);
+                float amp = clamp(0.75 + 0.35 * uDistortion, 0.6, 1.5) * shoreDamp;
+
+                vec2 wp = position.xz;
+                float gustEnv = (0.68 + 0.32 * sin(wp.x * 0.11 + uTime * 0.45) * cos(wp.y * 0.09 - uTime * 0.38))
+                              * (0.80 + 0.20 * cos(wp.x * 0.23 - wp.y * 0.17 + uTime * 0.62));
+                float wAmp = amp * gustEnv;
+
+                vec3 tangent = vec3(1.0, 0.0, 0.0);
+                vec3 binormal = vec3(0.0, 0.0, 1.0);
+                vec3 disp = vec3(0.0);
+
+                disp += gerstnerWave(wp, vec2( 0.86,  0.51), 0.095 * wAmp, 7.20, 0.68, tangent, binormal);
+                disp += gerstnerWave(wp, vec2( 0.24,  0.97), 0.085 * wAmp, 4.60, 0.80, tangent, binormal);
+                disp += gerstnerWave(wp, vec2(-0.74,  0.67), 0.072 * wAmp, 3.00, 0.92, tangent, binormal);
+                disp += gerstnerWave(wp, vec2( 0.95, -0.31), 0.058 * wAmp, 2.00, 1.04, tangent, binormal);
+                disp += gerstnerWave(wp, vec2(-0.42, -0.91), 0.045 * wAmp, 1.35, 1.15, tangent, binormal);
+                disp += gerstnerWave(wp, vec2( 0.58, -0.81), 0.035 * wAmp, 0.92, 1.28, tangent, binormal);
+
+                vec3 displaced = position + disp;
+                vWaveNormal = normalize(mat3(modelMatrix) * normalize(cross(binormal, tangent)));
+                vCrest = clamp((disp.y / max(0.04, 0.19 * amp)) * 0.5 + 0.5, 0.0, 1.0);
+
+                vec4 worldPos = modelMatrix * vec4(displaced, 1.0);
+                vWorldPos = worldPos.xyz;
+                gl_Position = projectionMatrix * viewMatrix * worldPos;
+            }
+        `,
+        fragmentShader: `
+            uniform sampler2D uNormalMap;
+            uniform float uTime;
+            uniform float uDistortion;
+            uniform vec3 uSunDir;
+            uniform vec3 uSunColor;
+            varying vec3 vWorldPos;
+            varying vec3 vWaveNormal;
+            varying float vCrest;
+            varying float vShore;
+
+            void main() {
+                vec2 uv1 = vWorldPos.xz * 0.11 + vec2(uTime * 0.045, uTime * 0.028);
+                vec2 uv2 = vWorldPos.xz * 0.21 + vec2(-uTime * 0.035, uTime * 0.042);
+                vec2 uv3 = vWorldPos.xz * 0.42 + vec2(uTime * 0.022, -uTime * 0.032);
+
+                vec3 n1 = texture2D(uNormalMap, uv1).xyz * 2.0 - 1.0;
+                vec3 n2 = texture2D(uNormalMap, uv2).xyz * 2.0 - 1.0;
+                vec3 n3 = texture2D(uNormalMap, uv3).xyz * 2.0 - 1.0;
+
+                vec3 ripple = vec3(
+                    (n1.x * 0.5 + n2.x * 0.35 + n3.x * 0.25) * 0.45 * uDistortion,
+                    0.0,
+                    (n1.y * 0.5 + n2.y * 0.35 + n3.y * 0.25) * 0.45 * uDistortion
+                );
+                vec3 N = normalize(vWaveNormal + ripple);
+
+                vec3 V = normalize(cameraPosition - vWorldPos);
+                vec3 L = normalize(uSunDir);
+
+                // Deep trough ocean-blue to mid-water blue + turquoise subsurface scattering in crests
+                vec3 deepBlue = vec3(0.04, 0.15, 0.29);
+                vec3 midBlue = vec3(0.09, 0.30, 0.49);
+                vec3 sssTurquoise = vec3(0.16, 0.58, 0.64);
+
+                float crestFactor = smoothstep(0.35, 0.92, vCrest);
+                float backLit = pow(max(dot(V, -L + N * 0.65), 0.0), 2.5);
+                vec3 waterBody = mix(deepBlue, midBlue, 0.35 + 0.65 * crestFactor);
+                waterBody = mix(waterBody, sssTurquoise, crestFactor * (0.45 + 0.55 * backLit));
+                float depthShade = mix(0.68, 1.0, smoothstep(0.0, 2.2, vShore));
+                waterBody *= depthShade;
+
+                // Fresnel sky reflection harmonized with golden afternoon sun
+                float theta = max(dot(V, N), 0.0);
+                float reflectance = 0.03 + 0.97 * pow(1.0 - theta, 4.5);
+                vec3 R = reflect(-V, N);
+                float skyGrad = clamp(R.y * 1.4, 0.0, 1.0);
+                vec3 horizonCol = mix(vec3(0.62, 0.74, 0.86), uSunColor * 0.92, 0.32);
+                vec3 reflectionSample = mix(horizonCol, vec3(0.24, 0.43, 0.68), skyGrad);
+
+                vec3 col = mix(waterBody, reflectionSample, reflectance * 0.78);
+
+                // Dual-lobe sun glitter path across wave facets
+                vec3 H = normalize(L + V);
+                float specTight = pow(max(dot(N, H), 0.0), 240.0) * 2.6;
+                float specBroad = pow(max(dot(N, H), 0.0), 32.0) * 0.35;
+                col += uSunColor * (specTight + specBroad);
+
+                // Lacy whitecap foam on wave crests & subtle shore lap
+                float foamTex = clamp((n1.z * 0.5 + n2.x * 0.5 + n3.y * 0.5) * 0.5 + 0.55, 0.0, 1.0);
+                float crestFoam = smoothstep(0.68, 0.96, vCrest) * smoothstep(0.36, 0.78, foamTex);
+                float shoreMask = 1.0 - smoothstep(0.0, 0.9, vShore);
+                float shoreFoam = shoreMask * smoothstep(0.42, 0.85, foamTex) * 0.55;
+                float foam = clamp(crestFoam * 0.88 + shoreFoam, 0.0, 0.92);
+                col = mix(col, vec3(0.88, 0.95, 0.98), foam);
+
+                float waterAlpha = clamp(mix(0.76, 0.98, reflectance + foam * 0.3), 0.0, 1.0);
+                gl_FragColor = vec4(col, waterAlpha);
+
+                #include <tonemapping_fragment>
+                #include <colorspace_fragment>
+            }
+        `
     })
-    lakeWater.material.transparent = true
-    lakeWater.material.uniforms['size'].value = 6.5
-    lakeWater.material.fragmentShader = lakeWater.material.fragmentShader.replace(
-        'gl_FragColor = vec4( outgoingLight, alpha );',
-        `float waterAlpha = clamp( mix( 0.46, 0.94, reflectance ), 0.0, 1.0 );
-        gl_FragColor = vec4( outgoingLight, waterAlpha );`
-    )
-    lakeWater.position.y = -0.78
+    const lakeWater = new THREE.Mesh(lakeGeo, lakeWaterMat)
+    lakeWater.position.y = -0.72
     group.add(lakeWater)
 
     const simpleWater = lakeWater
@@ -146,14 +286,14 @@ export function createParkLake(grassTex) {
         lakeCutoutPath,
         lakeParams: { lakeCenterX, lakeCenterZ, lakeHalfLenZ, lakeAmpX },
         update(elapsed = 0) {
-            lakeWater.material.uniforms['time'].value = elapsed * 0.35
+            waterUniforms.uTime.value = elapsed * 0.85
         },
         setWind(strength = 1) {
-            lakeWater.material.uniforms['distortionScale'].value = 0.9 + 0.5 * strength
+            waterUniforms.uDistortion.value = 0.75 + 0.45 * strength
         },
         setSun(dir, color) {
-            if (dir) lakeWater.material.uniforms['sunDirection'].value.copy(dir).normalize()
-            if (color) lakeWater.material.uniforms['sunColor'].value.copy(color)
+            if (dir) waterUniforms.uSunDir.value.copy(dir).normalize()
+            if (color) waterUniforms.uSunColor.value.copy(color)
         }
     }
 }
