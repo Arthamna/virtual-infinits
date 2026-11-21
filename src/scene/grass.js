@@ -7,7 +7,8 @@ export function createParkGrass({
     curveSamples,
     pathHalfWidth,
     plazaGroup,
-    perimeterBounds
+    perimeterBounds,
+    extraBlocked = () => false
 }) {
     const group = new THREE.Group()
     const { lakeCenterX, lakeCenterZ, lakeHalfLenZ, lakeAmpX } = lakeParams
@@ -137,6 +138,7 @@ export function createParkGrass({
             if (dx * dx + dz * dz < walkwayClearR2) return true
         }
         if (isOnPlaza(x, z)) return true
+        if (extraBlocked(x, z)) return true
         if (x < pInnerMinX || x > pInnerMaxX || z < pInnerMinZ || z > pInnerMaxZ) return true
         const cxInner = x < pInnerMinX + innerCornerR
             ? pInnerMinX + innerCornerR

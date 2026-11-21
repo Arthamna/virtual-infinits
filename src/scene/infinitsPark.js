@@ -14,6 +14,7 @@ import { createParkGrass } from './grass'
 import { createPathLamps, createPlazaLampPosts } from './lamps'
 import { createBackdrop } from './backdrop'
 import { createVegetation } from './vegetation'
+import { createMonuments, isOnMonument } from './monument'
 
 export function createInfinitsParkScene() {
     const group = new THREE.Group()
@@ -114,12 +115,17 @@ export function createInfinitsParkScene() {
         curveSamples: paths.curveSamples,
         pathHalfWidth: plaza.pathParams.rampWidth / 2 + 0.16,
         plazaGroup: plaza.group,
-        perimeterBounds
+        perimeterBounds,
+        extraBlocked: (x, z) => isOnMonument(x, z)
     })
     group.add(grass.group)
 
+    // Blender models: kananatas (far-right corner), kiriatas (far-left corner), fasor (right lawn)
+    const monument = createMonuments()
+    group.add(monument)
+
     const vegetation = createVegetation({
-        isBlocked: grass.isBlocked,
+        isBlocked: (x, z) => grass.isBlocked(x, z) || isOnMonument(x, z, 2.5),
         lampPositions: lamps.positions,
         pathEdges: [paths.leftEdge, paths.rightEdge]
     })
@@ -131,7 +137,7 @@ export function createInfinitsParkScene() {
         vegetation,
         walk: {
             walkables: [plaza.group, paths.walkwayMesh],
-            obstacles: [railingsGroup, signage, totem, lamps.group, lampPosts.group],
+            obstacles: [railingsGroup, signage, totem, lamps.group, lampPosts.group, monument],
             start: paths.curveSamples[16].pt.clone(),
             startDir: paths.curveSamples[16].tan.clone()
         },
