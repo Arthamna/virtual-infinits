@@ -309,7 +309,7 @@ export function createParkLake(grassTex) {
 
                 // Physical Schlick Fresnel sky reflection (F0 = 0.02) + automatic sunset/day/night sky color from sun elevation
                 float ndotv = max(dot(V, N), 0.0);
-                float fresnel = 0.02 + 0.98 * pow(1.0 - ndotv, 5.0);
+                float fresnel = 0.02 + 0.98 * pow(max(1.0 - ndotv, 0.0), 5.0);
                 float reflStrength = mix(fresnel * 0.92, 0.18 + fresnel * 0.80, sunsetWarmth);
                 vec3 R = reflect(-V, N);
                 float skyGrad = clamp(pow(max(R.y, 0.0), 0.65) * 1.25, 0.0, 1.0);

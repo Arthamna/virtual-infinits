@@ -1,45 +1,166 @@
 import * as THREE from 'three'
 import { createConcreteTexture } from './textures'
+import { makePlaqueGlyph } from './plaqueGlyphs'
 
-// Black square bollard lamp with leaf-pattern cutouts that glow from inside
-function createLeafCutoutTexture() {
-    const w = 128
-    const h = 512
-    const canvas = document.createElement('canvas')
-    canvas.width = w
-    canvas.height = h
-    const ctx = canvas.getContext('2d')
-    ctx.fillStyle = '#000'
-    ctx.fillRect(0, 0, w, h)
-
-    let seed = 77
-    const rand = () => {
-        seed = (seed * 1664525 + 1013904223) >>> 0
-        return seed / 4294967296
-    }
-    ctx.fillStyle = '#fff'
-    // two columns of leaves, with a plain band in the middle where the real lamp has text
-    for (const colX of [w * 0.32, w * 0.68]) {
-        for (const [y0, y1] of [[h * 0.08, h * 0.44], [h * 0.56, h * 0.92]]) {
-            for (let y = y0; y < y1; y += 13) {
-                const x = colX + (rand() - 0.5) * 14
-                ctx.save()
-                ctx.translate(x, y + rand() * 6)
-                ctx.rotate((rand() - 0.5) * 1.6)
-                ctx.beginPath()
-                ctx.ellipse(0, 0, 3 + rand() * 2, 7 + rand() * 4, 0, 0, Math.PI * 2)
-                ctx.fill()
-                ctx.restore()
-            }
-        }
-    }
-    const tex = new THREE.CanvasTexture(canvas)
-    tex.colorSpace = THREE.SRGBColorSpace
-    tex.anisotropy = 4
-    return tex
+function warpFoliageUV(u, v, xMin, xMax, yMin, yMax, phase = 0) {
+    const envU = Math.sin(Math.PI * u)
+    const envV = Math.sin(Math.PI * v)
+    const du =
+        0.11 * envU * Math.sin(v * Math.PI * 2.4 + phase) +
+        0.04 * envU * Math.cos(u * Math.PI * 2.0 - v * Math.PI * 2.8)
+    const dv = 0.06 * envV * Math.sin(u * Math.PI * 2.0 - v * Math.PI * 1.6 + phase)
+    const uw = THREE.MathUtils.clamp(u + du, 0.01, 0.99)
+    const vw = THREE.MathUtils.clamp(v + dv, 0.01, 0.99)
+    return [xMin + uw * (xMax - xMin), yMin + vw * (yMax - yMin)]
 }
 
-export function createPathLamps({ leftEdge, rightEdge, curbW, spacing = 5 }) {
+function addOrganicLeafPanelHoles(holesArray, xMin, xMax, yMin, yMax, rows = 8, cols = 4, phase = 0) {
+    const segs = 7
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            const u0 = (c + 0.09) / cols
+            const u1 = (c + 0.91) / cols
+            const v0 = (r + 0.09) / rows
+            const v1 = (r + 0.91) / rows
+            const uc = (u0 + u1) * 0.5
+            const vc = (v0 + v1) * 0.5
+            const du = (u1 - u0) * 0.5
+            const dv = (v1 - v0) * 0.5
+
+            // Alternate leaf diagonal tilt left/right like tropical fern fronds in the laser-cut panel
+            const tiltLeft = (c + r) % 2 === 0
+            const pStart = tiltLeft ? [uc - du * 0.78, vc - dv * 0.82] : [uc + du * 0.78, vc - dv * 0.82]
+            const pEnd = tiltLeft ? [uc + du * 0.82, vc + dv * 0.84] : [uc - du * 0.82, vc + dv * 0.84]
+
+            const dirU = pEnd[0] - pStart[0]
+            const dirV = pEnd[1] - pStart[1]
+            const len = Math.hypot(dirU, dirV) || 1
+            const nx = -dirV / len
+            const ny = dirU / len
+            const maxHalfW = Math.min(du, dv) * 0.44
+            const curveBend = (tiltLeft ? 1 : -1) * Math.min(du, dv) * 0.18
+
+            const pts = []
+            for (let s = 0; s <= segs; s++) {
+                const t = s / segs
+                const profile = Math.sin(Math.PI * t)
+                const arch = Math.sin(Math.PI * t) * curveBend
+                const u = pStart[0] + dirU * t + nx * (arch + maxHalfW * profile)
+                const v = pStart[1] + dirV * t + ny * (arch + maxHalfW * profile)
+                pts.push(warpFoliageUV(u, v, xMin, xMax, yMin, yMax, phase))
+            }
+            for (let s = segs - 1; s >= 1; s--) {
+                const t = s / segs
+                const profile = Math.sin(Math.PI * t)
+                const arch = Math.sin(Math.PI * t) * curveBend
+                const u = pStart[0] + dirU * t + nx * (arch - maxHalfW * profile)
+                const v = pStart[1] + dirV * t + ny * (arch - maxHalfW * profile)
+                pts.push(warpFoliageUV(u, v, xMin, xMax, yMin, yMax, phase))
+            }
+
+            const hole = new THREE.Path()
+            hole.moveTo(pts[0][0], pts[0][1])
+            for (let i = 1; i < pts.length; i++) {
+                hole.lineTo(pts[i][0], pts[i][1])
+            }
+            hole.closePath()
+            holesArray.push(hole)
+        }
+    }
+}
+
+function makeStencilGlyphHolePaths(token, offsetX, offsetY, scaleX, scaleY, skew = 0) {
+    const paths = []
+    const tx = (u, v) => offsetX + (u + skew * v) * scaleX
+    const ty = (v) => offsetY + v * scaleY
+
+    const pushPolygon = (coords) => {
+        const p = new THREE.Path()
+        for (let i = 0; i < coords.length; i++) {
+            const x = tx(coords[i][0], coords[i][1])
+            const y = ty(coords[i][1])
+            if (i === 0) p.moveTo(x, y)
+            else p.lineTo(x, y)
+        }
+        p.closePath()
+        paths.push(p)
+    }
+
+    if (token === 'iTS_i') {
+        // Stencil 'i' matching the close-up photo: lower bar with diagonal top + upper triangular wedge dot
+        const sh = (u, v) => [u + 0.09 * v, v]
+        pushPolygon([sh(0.0, 0.0), sh(0.25, 0.0), sh(0.25, 0.62), sh(0.0, 0.72)])
+        pushPolygon([sh(0.0, 0.83), sh(0.25, 0.96), sh(0.25, 1.0), sh(0.0, 1.0)])
+        return { paths, w: 0.27 }
+    }
+
+    if (token === 'O') {
+        // Smooth Bezier stencil 'O' split by vertical top/bottom bridges so the center island stays solid metal
+        const w = 0.72
+        const t = 0.18
+        const bL = 0.305
+        const bR = 0.415
+
+        const leftShape = new THREE.Shape()
+        leftShape.moveTo(bL, 0.01)
+        leftShape.lineTo(bL, t + 0.01)
+        leftShape.bezierCurveTo(t + 0.03, t + 0.02, t, 0.28, t, 0.5)
+        leftShape.bezierCurveTo(t, 0.72, t + 0.03, 1.0 - t - 0.02, bL, 1.0 - t - 0.01)
+        leftShape.lineTo(bL, 0.99)
+        leftShape.bezierCurveTo(w * 0.08, 0.96, 0, 0.8, 0, 0.5)
+        leftShape.bezierCurveTo(0, 0.2, w * 0.08, 0.04, bL, 0.01)
+        leftShape.closePath()
+
+        const rightShape = new THREE.Shape()
+        rightShape.moveTo(bR, 0.01)
+        rightShape.bezierCurveTo(w * 0.92, 0.04, w, 0.2, w, 0.5)
+        rightShape.bezierCurveTo(w, 0.8, w * 0.92, 0.96, bR, 0.99)
+        rightShape.lineTo(bR, 1.0 - t - 0.01)
+        rightShape.bezierCurveTo(w - t - 0.03, 1.0 - t - 0.02, w - t, 0.72, w - t, 0.5)
+        rightShape.bezierCurveTo(w - t, 0.28, w - t - 0.03, t + 0.02, bR, t + 0.01)
+        rightShape.closePath()
+
+        for (const sub of [leftShape, rightShape]) {
+            const pts = sub.getPoints(18)
+            const p = new THREE.Path()
+            pts.forEach((pt, idx) => {
+                const x = tx(pt.x, pt.y)
+                const y = ty(pt.y)
+                if (idx === 0) p.moveTo(x, y)
+                else p.lineTo(x, y)
+            })
+            p.closePath()
+            paths.push(p)
+        }
+        return { paths, w }
+    }
+
+    const { shapes, w } = makePlaqueGlyph(token)
+    shapes.forEach((sh) => {
+        const pts = sh.getPoints(18)
+        const p = new THREE.Path()
+        pts.forEach((pt, idx) => {
+            const x = tx(pt.x, pt.y)
+            const y = ty(pt.y)
+            if (idx === 0) p.moveTo(x, y)
+            else p.lineTo(x, y)
+        })
+        p.closePath()
+        paths.push(p)
+    })
+    return { paths, w }
+}
+
+function addStencilTextRowHoles(holesArray, tokens, startX, y, scaleX, scaleY, gap, skew = 0) {
+    let cursorX = startX
+    for (const token of tokens) {
+        const { paths, w } = makeStencilGlyphHolePaths(token, cursorX, y, scaleX, scaleY, skew)
+        holesArray.push(...paths)
+        cursorX += w * scaleX + gap
+    }
+}
+
+export function createTeknoSainsBollardLamp() {
     const group = new THREE.Group()
 
     const colW = 0.44

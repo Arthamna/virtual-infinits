@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { createConcreteTexture, createPavingTexture } from './textures'
+import { createConcreteTexture, createPavingTexture, createPavingPBRMaps } from './textures'
 
 export function createParkPaths({
     walkwayMat,
@@ -188,6 +188,7 @@ export function createParkPaths({
     fullWalkwayGeo.setAttribute('position', new THREE.Float32BufferAttribute(lpPos, 3))
     fullWalkwayGeo.setAttribute('uv', new THREE.Float32BufferAttribute(lpUV, 2))
     fullWalkwayGeo.setIndex(lpIdx)
+    const lakePathPBR = createPavingPBRMaps(3, 3, false)
     const lakePathMat = new THREE.MeshStandardMaterial({
         map: createPavingTexture(3, 3, false),
         normalMap: lakePathPBR.normalMap,

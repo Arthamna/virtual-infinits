@@ -3,7 +3,8 @@ import {
     createPavingTexture,
     createBrickPlazaTexture,
     createConcreteTexture,
-    createGrassTexture
+    createGrassTexture,
+    createPavingPBRMaps
 } from './textures'
 import { createInfinitsSignage, createTeknoSainsTotem } from './signage'
 import { createParkPlaza } from './plaza'
@@ -117,6 +118,7 @@ export function createInfinitsParkScene() {
             )
     }
 
+    const walkwayPBR = createPavingPBRMaps(5, 2, false)
     const walkwayMat = new THREE.MeshStandardMaterial({
         map: createPavingTexture(5, 2, true),
         normalMap: walkwayPBR.normalMap,

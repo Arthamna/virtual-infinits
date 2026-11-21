@@ -15,6 +15,9 @@ import GUI from 'lil-gui'
 import { createInfinitsParkScene } from './scene/infinitsPark'
 import { createWalkControls } from './walkControls'
 
+// park is not scaled on this branch (origin/Andra uses 1.6 together with park.group.scale.setScalar)
+const PARK_SCALE = 1
+
 const container = document.createElement('div')
 document.body.appendChild(container)
 
@@ -185,6 +188,8 @@ function takePhoto() {
     composer.setSize(window.innerWidth, window.innerHeight)
     controls.enabled = saved.controls
 }
+// the full scene panel was removed; keep a minimal one just for the photo button
+const gui = new GUI({ title: 'Scene' })
 gui.add({ takePhoto }, 'takePhoto').name('Take 4K photo')
 
 // MSAA target: the composer otherwise drops the canvas antialiasing
