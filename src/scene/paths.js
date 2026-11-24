@@ -37,10 +37,12 @@ export function createParkPaths({
         const dz = lakeHalfLenZ * (0.78 + 0.66 * s * s) * c
         const nLen = Math.hypot(dz, -dx) || 1
 
-        const leftWaistSwing = 6.2 * Math.exp(-Math.pow((theta + Math.PI) / 0.34, 2))
         const rightWaistSwing = 5.4 * Math.exp(-Math.pow((theta + 0.08) / 0.32, 2))
-        const dynOffset = 3.8 + leftWaistSwing + rightWaistSwing
-        return new THREE.Vector3(lx + (dz / nLen) * dynOffset, 0, lz + (-dx / nLen) * dynOffset)
+        const dynOffset = 3.8 + rightWaistSwing
+        // left waist: push the path straight out in -x (offsetting along the bank normal pinches into a kink on the
+        // concave waist) so it runs ~straight at x ≈ -33 behind the playground pad (monument.js)
+        const leftWaistShiftX = 13.5 * Math.exp(-Math.pow((theta + Math.PI) / 0.55, 2))
+        return new THREE.Vector3(lx + (dz / nLen) * dynOffset - leftWaistShiftX, 0, lz + (-dx / nLen) * dynOffset)
     }
 
     const rightStartCenter = new THREE.Vector3(
