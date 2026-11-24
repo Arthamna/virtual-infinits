@@ -1,6 +1,5 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { createConcreteTexture } from './textures'
 
 // Monuments modelled in Blender and exported as .glb with their procedural materials baked to textures.
 // Footprints are in model space (Blender X / -Y) and are used to keep grass, trees and walkers off them.
@@ -45,10 +44,14 @@ export const MONUMENTS = [
             points: [[-6.55, -2.9], [13.95, -2.9], [-6.55, 9.5]],
             // per corner, same order as points: the right angle stays tighter so the gym's corner stays on the paving
             cornerRadius: [2.2, 5.5, 4.5],
-            // same proportions as the monuments' pads
-            curbWidth: 0.2,
-            curbHeight: 0.1,
-            pavingHeight: 0.04
+            // like the real playground: paving inside a low raised curb, then a wide flat concrete border.
+            // Border width per edge (shore, slanted side facing the path, stairs side); narrow on the
+            // shore side so it stays off the lake bank.
+            borderWidth: [0.2, 0.9, 0.7],
+            curbWidth: 0.15,
+            curbHeight: 0.12,
+            borderHeight: 0.06,
+            pavingHeight: 0.05
         }
     },
     {
@@ -96,7 +99,7 @@ function polygonDistance(poly, x, z) {
 
 function isOn(m, x, z, margin) {
     const [lx, lz] = toLocal(m.placement, x, z)
-    if (m.pad && !m.polygons) m = { ...m, polygons: [m.pad.points] }
+    if (m.pad && !m.polygons) m = { ...m, polygons: [padOutline(m.pad)] }
     if (m.rect) {
         const r = m.rect
         return lx > r.minX - margin && lx < r.maxX + margin && lz > r.minZ - margin && lz < r.maxZ + margin
@@ -133,7 +136,7 @@ function roundedPolygonShape(points, r) {
     return shape
 }
 
-// shrink a convex polygon by moving every edge inward by d
+// shrink a convex polygon by moving every edge inward by d (a number, or one per edge i -> i+1; negative grows it)
 function insetPolygon(points, d) {
     const n = points.length
     let area = 0
@@ -148,7 +151,8 @@ function insetPolygon(points, d) {
         const len = Math.hypot(bx - ax, bz - az)
         const nx = (-(bz - az) / len) * sign
         const nz = ((bx - ax) / len) * sign
-        return { px: ax + nx * d, pz: az + nz * d, dx: bx - ax, dz: bz - az }
+        const di = Array.isArray(d) ? d[i] : d
+        return { px: ax + nx * di, pz: az + nz * di, dx: bx - ax, dz: bz - az }
     })
     return lines.map((l1, i) => {
         const l0 = lines[(i + n - 1) % n]
@@ -176,31 +180,29 @@ function extrudeFlat(shape, height, uvScale, uvAngle = 0) {
     return geo
 }
 
-// small square blocks in mixed pink / grey / beige with grey joints, like the paving baked into the monument
-// models (kananatas, kiriatas); laid on the diagonal by rotating the UVs 45° in buildPad
-function createMonumentPavingTexture() {
-    const tiles = 16
-    const px = 32
-    const size = tiles * px
+// grey square blocks laid in straight rows with salmon-pink blocks in stepped 2x2 clusters,
+// like the real playground's paving (reference photos)
+function createPlaygroundPavingTexture() {
+    const blocks = 24 // the pink pattern repeats every 12 blocks, so 24 tiles seamlessly
+    const px = 24
+    const size = blocks * px
     const canvas = document.createElement('canvas')
     canvas.width = canvas.height = size
     const ctx = canvas.getContext('2d')
-    ctx.fillStyle = '#6f6a66' // joints
+    ctx.fillStyle = '#5f5d5a' // joints
     ctx.fillRect(0, 0, size, size)
-    // colours sampled by eye from Paving_Blocks_col (weights = how often each shows up)
-    const palette = [
-        ['#c99a8f', 3], ['#d6a99d', 2], ['#b9b8b6', 3], ['#a3a5aa', 2], ['#85888f', 2], ['#d3c7b3', 2]
-    ]
-    const total = palette.reduce((a, [, w]) => a + w, 0)
-    let seed = 1337
+    let seed = 4242
     const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296)
-    const joint = 3
-    for (let j = 0; j < tiles; j++) {
-        for (let i = 0; i < tiles; i++) {
-            let r = rand() * total
-            let k = 0
-            while ((r -= palette[k][1]) > 0) k++
-            const col = new THREE.Color(palette[k][0]).offsetHSL(0, 0, (rand() - 0.5) * 0.05)
+    const grey = new THREE.Color(0x9c9c9a)
+    const pink = new THREE.Color(0xd38f86)
+    const joint = 2
+    for (let j = 0; j < blocks; j++) {
+        for (let i = 0; i < blocks; i++) {
+            const ci = i >> 1
+            const cj = j >> 1
+            // stepped diagonal runs of 2x2 pink clusters, broken into short segments
+            const isPink = (ci + cj) % 6 === 0 && (((ci - cj) % 12) + 12) % 12 < 8
+            const col = (isPink ? pink : grey).clone().offsetHSL(0, 0, (rand() - 0.5) * (isPink ? 0.06 : 0.09))
             ctx.fillStyle = `#${col.getHexString()}`
             ctx.fillRect(i * px + joint / 2, j * px + joint / 2, px - joint, px - joint)
         }
@@ -212,27 +214,48 @@ function createMonumentPavingTexture() {
     return tex
 }
 
+const padRadii = ({ points, cornerRadius = 0.8 }) =>
+    points.map((_, i) => (Array.isArray(cornerRadius) ? cornerRadius[i] : cornerRadius))
+
+// outer edge of the concrete border (pad.points is the outer edge of the curb)
+function padOutline(pad) {
+    return pad.borderWidth ? insetPolygon(pad.points, [pad.borderWidth].flat().map((w) => -w)) : pad.points
+}
+
 let padMaterials
-// monument-style pad: diagonal block paving inside a raised light concrete curb ring
-// (heights match kananatas / kiriatas: paving top 0.04 m, curb top 0.10 m)
-function buildPad({ points, cornerRadius = 0.8, curbWidth = 0.2, curbHeight = 0.1, pavingHeight = 0.04 }) {
+// playground pad, outside in: flat concrete border -> low raised curb -> block paving
+function buildPad(pad) {
+    const { points, curbWidth = 0.15, curbHeight = 0.12, borderHeight = 0.06, pavingHeight = 0.05 } = pad
     padMaterials ??= {
-        curb: new THREE.MeshStandardMaterial({ map: createConcreteTexture(), color: 0xcfcfca, roughness: 0.9, metalness: 0 }),
-        paving: new THREE.MeshStandardMaterial({ map: createMonumentPavingTexture(), roughness: 0.88, metalness: 0 })
+        // plain colour, not createConcreteTexture(): that one is dark grey (#7c7b74) and the border is pale in the photos
+        border: new THREE.MeshStandardMaterial({ color: 0xcdcbc5, roughness: 0.92, metalness: 0 }),
+        curb: new THREE.MeshStandardMaterial({ color: 0xaeaca6, roughness: 0.9, metalness: 0 }),
+        paving: new THREE.MeshStandardMaterial({ map: createPlaygroundPavingTexture(), roughness: 0.88, metalness: 0 })
     }
-    const radii = points.map((_, i) => (Array.isArray(cornerRadius) ? cornerRadius[i] : cornerRadius))
+    const radii = padRadii(pad)
+    const ring = (outer, outerR, inner, innerR) => {
+        const shape = roundedPolygonShape(outer, outerR)
+        shape.holes.push(roundedPolygonShape(inner, innerR))
+        return shape
+    }
     const inner = insetPolygon(points, curbWidth)
     const innerRadii = radii.map((r) => Math.max(r - curbWidth, 0.1))
 
-    const ringShape = roundedPolygonShape(points, radii)
-    ringShape.holes.push(roundedPolygonShape(inner, innerRadii))
-
     const group = new THREE.Group()
     group.name = 'Pad'
-    const curb = new THREE.Mesh(extrudeFlat(ringShape, curbHeight, 1.5), padMaterials.curb)
-    // 16 blocks per repeat, 0.2 m blocks -> 3.2 m per repeat
-    const paving = new THREE.Mesh(extrudeFlat(roundedPolygonShape(inner, innerRadii), pavingHeight, 3.2, Math.PI / 4), padMaterials.paving)
-    for (const m of [curb, paving]) {
+    const meshes = [
+        // 2.88 m per paving repeat = 24 blocks of 12 cm, rows parallel to the shore side
+        new THREE.Mesh(extrudeFlat(roundedPolygonShape(inner, innerRadii), pavingHeight, 2.88), padMaterials.paving),
+        new THREE.Mesh(extrudeFlat(ring(points, radii, inner, innerRadii), curbHeight, 1.5), padMaterials.curb)
+    ]
+    if (pad.borderWidth) {
+        const widths = [pad.borderWidth].flat()
+        const outer = padOutline(pad)
+        // grow each corner's radius by the wider of its two borders so the outline stays concentric-ish
+        const outerRadii = radii.map((r, i) => r + Math.max(widths[i % widths.length], widths[(i + points.length - 1) % widths.length]))
+        meshes.push(new THREE.Mesh(extrudeFlat(ring(outer, outerRadii, points, radii), borderHeight, 2), padMaterials.border))
+    }
+    for (const m of meshes) {
         m.receiveShadow = true
         group.add(m)
     }
@@ -250,7 +273,7 @@ function loadMonument({ name, url, placement, scale = 1, pad }) {
         .loadAsync(url)
         .then((gltf) => {
             gltf.scene.scale.setScalar(scale)
-            if (pad) gltf.scene.position.y = pad.pavingHeight ?? 0.04 // stand on the paving
+            if (pad) gltf.scene.position.y = pad.pavingHeight ?? 0.05 // stand on the paving
             gltf.scene.traverse((o) => {
                 if (!o.isMesh) return
                 o.castShadow = true
