@@ -42,8 +42,9 @@ export const MONUMENTS = [
             // (rounded well inside the lake path). The access stairs come down at the model's -x end, so the pad
             // runs ~2 m past their foot.
             points: [[-6.55, -2.9], [13.95, -2.9], [-6.55, 9.5]],
-            // per corner, same order as points: the right angle stays tighter so the gym's corner stays on the paving
-            cornerRadius: [2.2, 5.5, 4.5],
+            // per corner, same order as points: the right angle stays tighter so the gym's corner stays on the paving;
+            // the big radius past the slides blunts that long tip (moving the corner in would clip the slides)
+            cornerRadius: [2.2, 10, 4.5],
             // like the real playground: paving inside a low raised curb, then a wide flat concrete border.
             // Border width per edge (shore, slanted side facing the path, stairs side); narrow on the
             // shore side so it stays off the lake bank.
