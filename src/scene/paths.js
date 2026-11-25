@@ -317,7 +317,7 @@ export function createParkPaths({
     }
     perimGeo.setAttribute('uv', new THREE.BufferAttribute(perimUV, 2))
     const perimMesh = new THREE.Mesh(perimGeo, [walkwayMat, curbMat])
-    perimMesh.position.y = 0.24
+    perimMesh.position.y = 0.06
     perimMesh.castShadow = true
     perimMesh.receiveShadow = true
     group.add(perimMesh)

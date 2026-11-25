@@ -498,6 +498,11 @@ function applyLakesideSCurve(tree, minY, rawHeight, reach = 0.50) {
     }
 }
 
+const leafSunUniforms = {
+    uSunDir: { value: new THREE.Vector3(0.7, 0.3, 0.15).normalize() },
+    uSunColor: { value: new THREE.Color(0xff9b54) }
+}
+
 function styleTreeMeshes(tree, { minY = 0, maxY = 10, maxR = 5 } = {}) {
     if (tree.branchesMesh) {
         tree.branchesMesh.castShadow = true
@@ -510,27 +515,39 @@ function styleTreeMeshes(tree, { minY = 0, maxY = 10, maxR = 5 } = {}) {
         const leafMat = tree.leavesMesh.material
         if (leafMat) {
             if (leafMat.map) configureTexture(leafMat.map, { isColor: true })
-            // Subtle bounce so shadowed foliage keeps crisp 3D contrast without turning black
-            leafMat.emissive = new THREE.Color(0x467a2c)
-            leafMat.emissiveIntensity = 0.30
-            if ('shininess' in leafMat) leafMat.shininess = 12
-            if ('specular' in leafMat) leafMat.specular = new THREE.Color(0x1e3018)
+            // Keep ambient self-emissive very low so the shadowed/backlit side of foliage stays naturally dark
+            leafMat.emissive = new THREE.Color(0x28451a)
+            leafMat.emissiveIntensity = 0.08
+            if ('shininess' in leafMat) leafMat.shininess = 14
+            if ('specular' in leafMat) leafMat.specular = new THREE.Color(0x26381c)
             const prevCompile = leafMat.onBeforeCompile
             leafMat.onBeforeCompile = (shader, renderer) => {
                 if (prevCompile) prevCompile(shader, renderer)
                 shader.uniforms.uCrownMinY = { value: minY }
                 shader.uniforms.uCrownMaxY = { value: maxY }
                 shader.uniforms.uCrownMaxR = { value: maxR }
+                shader.uniforms.uSunDir = leafSunUniforms.uSunDir
+                shader.uniforms.uSunColor = leafSunUniforms.uSunColor
 
                 shader.vertexShader =
-                    "uniform float uCrownMinY;\nuniform float uCrownMaxY;\nuniform float uCrownMaxR;\nvarying float vCrownShade;\n" +
+                    "uniform float uCrownMinY;\nuniform float uCrownMaxY;\nuniform float uCrownMaxR;\nvarying float vCrownShade;\nvarying float vCrownEdge;\nvarying vec3 vCrownWorldDir;\nvarying vec3 vLeafWorldPos;\n" +
                     shader.vertexShader
                         .replace(
                             "#include <begin_vertex>",
                             `#include <begin_vertex>
                             float cH = clamp((position.y - uCrownMinY) / max(0.01, uCrownMaxY - uCrownMinY), 0.0, 1.0);
                             float cR = clamp(length(position.xz) / max(0.01, uCrownMaxR), 0.0, 1.0);
-                            vCrownShade = clamp((0.40 + 0.60 * cH) * (0.58 + 0.42 * cR), 0.34, 1.08);`
+                            vCrownShade = clamp((0.36 + 0.64 * cH) * (0.52 + 0.48 * cR), 0.30, 1.06);
+                            vCrownEdge = clamp(cR * 0.72 + cH * 0.28, 0.0, 1.0);
+                            float crownMidY = mix(uCrownMinY, uCrownMaxY, 0.56);
+                            vec3 localCrownDir = normalize(position - vec3(0.0, crownMidY, 0.0) + vec3(0.0, 0.22, 0.0));
+                            vec4 leafLocalPos = vec4(position, 1.0);
+                            #ifdef USE_INSTANCING
+                                localCrownDir = mat3(instanceMatrix) * localCrownDir;
+                                leafLocalPos = instanceMatrix * leafLocalPos;
+                            #endif
+                            vCrownWorldDir = normalize(mat3(modelMatrix) * localCrownDir);
+                            vLeafWorldPos = (modelMatrix * leafLocalPos).xyz;`
                         )
                         .replace(
                             /float windOffset = 2\.0 \* 3\.14 \* simplex3[\s\S]*?vec3 windSway =[\s\S]*?\);/,
@@ -542,15 +559,34 @@ function styleTreeMeshes(tree, { minY = 0, maxY = 10, maxR = 5 } = {}) {
                         )
 
                 shader.fragmentShader =
-                    "varying float vCrownShade;\n" +
+                    "uniform vec3 uSunDir;\nuniform vec3 uSunColor;\nvarying float vCrownShade;\nvarying float vCrownEdge;\nvarying vec3 vCrownWorldDir;\nvarying vec3 vLeafWorldPos;\n" +
                     shader.fragmentShader.replace(
                         "#include <color_fragment>",
                         `#include <color_fragment>
-                        diffuseColor.rgb *= vCrownShade;
-                        diffuseColor.rgb += vec3(0.11, 0.12, 0.02) * smoothstep(0.68, 1.05, vCrownShade);`
+                        vec3 cNorm = normalize(vCrownWorldDir);
+                        vec3 sDir = normalize(uSunDir);
+                        vec3 vDir = normalize(cameraPosition - vLeafWorldPos);
+
+                        // Directional foliage light physics: sunlit side bright, side away from sun (behind light) darker
+                        float sunFacing = dot(cNorm, sDir);
+                        float litSide = smoothstep(-0.55, 0.68, sunFacing);
+                        float directionalShade = mix(0.46, 1.14, litSide);
+
+                        // When camera looks through foliage toward the sun (backlit), thicken inner shadow slightly
+                        float backView = smoothstep(0.15, 0.88, dot(-vDir, sDir));
+                        float backlitDarken = mix(1.0, mix(0.74, 0.96, vCrownEdge), backView * (1.0 - litSide * 0.65));
+
+                        // Cool shadow tint on the dark side, warm sunlit boost on the facing side
+                        vec3 shadowTint = mix(vec3(0.84, 0.90, 0.98), vec3(1.0), litSide);
+                        diffuseColor.rgb *= vCrownShade * directionalShade * backlitDarken * shadowTint;
+
+                        // Subtle warm subsurface translucency (SSS) where sunlight filters through thin outer leaf edges
+                        float edgeTranslucency = pow(max(dot(-vDir, sDir), 0.0), 3.0) * smoothstep(0.48, 1.0, vCrownEdge);
+                        float sunTipGlow = smoothstep(0.52, 1.0, vCrownShade) * litSide;
+                        diffuseColor.rgb += uSunColor * (sunTipGlow * 0.14 + edgeTranslucency * 0.24);`
                     )
             }
-            leafMat.customProgramCacheKey = () => "ez-tree-instanced-leaves-shaded"
+            leafMat.customProgramCacheKey = () => "ez-tree-instanced-leaves-light-physics"
             leafMat.needsUpdate = true
         }
         tree.leavesMesh.customDepthMaterial = new THREE.MeshDepthMaterial({
@@ -561,10 +597,14 @@ function styleTreeMeshes(tree, { minY = 0, maxY = 10, maxR = 5 } = {}) {
     }
 }
 
-export function createRealisticParkTrees({ isBlocked } = {}) {
+export function createRealisticParkTrees({ isBlocked, perimeterBounds } = {}) {
     const group = new THREE.Group()
     const trees = []
     const bbox = new THREE.Box3()
+    const areaMinX = (perimeterBounds?.pInnerMinX ?? -40.5) + 1.5
+    const areaMaxX = (perimeterBounds?.pInnerMaxX ?? 43.5) - 1.5
+    const areaMinZ = (perimeterBounds?.pInnerMinZ ?? -119.5) + 2.0
+    const areaMaxZ = (perimeterBounds?.pInnerMaxZ ?? 4.5) - 2.0
 
     const parkTreeSpecs = [
         // Signature tropical V-fork tree on the left outer lawn
@@ -601,12 +641,12 @@ export function createRealisticParkTrees({ isBlocked } = {}) {
     }
 
     const minSpacingSq = 5.4 * 5.4
-    const targetTotal = 60
+    const targetTotal = 76
     let attempts = 0
-    while (parkTreeSpecs.length < targetTotal && attempts < 3000) {
+    while (parkTreeSpecs.length < targetTotal && attempts < 3600) {
         attempts++
-        const x = -39.0 + nextRand() * 81.0
-        const z = -117.5 + nextRand() * 113.0
+        const x = areaMinX + nextRand() * (areaMaxX - areaMinX)
+        const z = areaMinZ + nextRand() * (areaMaxZ - areaMinZ)
         if (isNearLakeShore(x, z)) continue
         if (isBlocked && isBlocked(x, z)) continue
 
@@ -641,10 +681,10 @@ export function createRealisticParkTrees({ isBlocked } = {}) {
     const bushSpecs = []
     const bushSpacingSq = 2.4 * 2.4
     let bushAttempts = 0
-    while (bushSpecs.length < 54 && bushAttempts < 2400) {
+    while (bushSpecs.length < 70 && bushAttempts < 3000) {
         bushAttempts++
-        const x = -39.5 + nextRand() * 82.0
-        const z = -117.5 + nextRand() * 114.0
+        const x = areaMinX + nextRand() * (areaMaxX - areaMinX)
+        const z = areaMinZ + nextRand() * (areaMaxZ - areaMinZ)
         if (isBlocked && isBlocked(x, z)) continue
 
         let tooClose = false
@@ -942,6 +982,10 @@ export function createRealisticParkTrees({ isBlocked } = {}) {
             for (let i = 0; i < trees.length; i++) {
                 trees[i].update(elapsed)
             }
+        },
+        setSun(dir, color) {
+            if (dir) leafSunUniforms.uSunDir.value.copy(dir).normalize()
+            if (color) leafSunUniforms.uSunColor.value.copy(color)
         }
     }
 }

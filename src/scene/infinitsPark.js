@@ -16,16 +16,25 @@ import { createPathLamps, createPlazaLampPosts } from './lamps'
 import { createBackdrop } from './backdrop'
 import { createVegetation } from './vegetation'
 import { createMonuments, isOnMonument } from './monument'
+import { createRealisticParkTrees } from './trees'
+import { createParkAmphitheater } from './amphitheater'
 
 export function createInfinitsParkScene() {
     const group = new THREE.Group()
+    const innerParkGroup = new THREE.Group()
+    innerParkGroup.position.y = 0.18
+    group.add(innerParkGroup)
 
+    const concreteTex = createConcreteTexture()
     const concreteMat = new THREE.MeshStandardMaterial({
-        map: createConcreteTexture(),
-        color: 0xbabec4,
+        map: concreteTex,
+        bumpMap: concreteTex,
+        bumpScale: 0.028,
+        roughnessMap: concreteTex,
+        color: 0xc2c6cc,
         roughness: 0.92,
         metalness: 0.02,
-        envMapIntensity: 0.25
+        envMapIntensity: 0.42
     })
     concreteMat.onBeforeCompile = (shader) => {
         shader.vertexShader = shader.vertexShader
@@ -129,31 +138,37 @@ export function createInfinitsParkScene() {
         roughness: 0.85,
         metalness: 0.03
     })
+    const redPavingPBR = createPavingPBRMaps(10, 4, true)
     const redPavingMat = new THREE.MeshStandardMaterial({
         map: createBrickPlazaTexture(10, 4),
+        normalMap: redPavingPBR.normalMap,
+        normalScale: new THREE.Vector2(1.35, 1.35),
+        aoMap: redPavingPBR.aoMap,
+        aoMapIntensity: 0.8,
+        roughnessMap: redPavingPBR.roughnessMap,
         roughness: 0.82,
         metalness: 0.03
     })
 
     const plaza = createParkPlaza({ concreteMat, walkwayMat, redPavingMat })
-    group.add(plaza.group)
+    innerParkGroup.add(plaza.group)
 
     const railingsGroup = createPlazaRailings(plaza.railingConfig)
-    group.add(railingsGroup)
+    innerParkGroup.add(railingsGroup)
 
     const signage = createInfinitsSignage()
     signage.position.set(-0.2, 2.13, -2.35)
-    group.add(signage)
+    innerParkGroup.add(signage)
 
     const totem = createTeknoSainsTotem()
     totem.position.set(10.1, 0.48, -1.6)
-    group.add(totem)
+    innerParkGroup.add(totem)
 
     const lake = createParkLake(grassTex)
-    group.add(lake.group)
+    innerParkGroup.add(lake.group)
 
     const perimW = 3.5
-    const pInnerMinX = -40.5
+    const pInnerMinX = -63.0
     const pInnerMaxX = 43.5
     const pInnerMinZ = -119.5
     const pInnerMaxZ = plaza.apronFrontZ + 4.5
@@ -182,10 +197,10 @@ export function createInfinitsParkScene() {
         ...plaza.pathParams,
         perimeterBounds
     })
-    group.add(paths.group)
+    innerParkGroup.add(paths.group)
 
     const lamps = createPathLamps({ leftEdge: paths.leftEdge, rightEdge: paths.rightEdge, curbW: 0.16 })
-    group.add(lamps.group)
+    innerParkGroup.add(lamps.group)
 
     // the four double-arm lamp posts on the plaza (y = plaza deck height)
     const lampPosts = createPlazaLampPosts([
@@ -194,7 +209,15 @@ export function createInfinitsParkScene() {
         { x: 8.7, y: 0.48, z: -2.4, yaw: Math.PI / 2 },
         { x: 33.6, y: 0.48, z: -0.8, yaw: Math.PI / 2 }
     ])
-    group.add(lampPosts.group)
+    innerParkGroup.add(lampPosts.group)
+
+    const amphitheater = createParkAmphitheater({
+        centerX: -31.6,
+        centerZ: -55.0,
+        facingAngle: -0.44,
+        arcHalf: 0.86
+    })
+    innerParkGroup.add(amphitheater.group)
 
     const grass = createParkGrass({
         grassMat,
@@ -204,36 +227,49 @@ export function createInfinitsParkScene() {
         pathHalfWidth: plaza.pathParams.rampWidth / 2 + 0.16,
         plazaGroup: plaza.group,
         perimeterBounds,
-        extraBlocked: (x, z) => isOnMonument(x, z)
+        extraBlocked: (x, z) => amphitheater.isBlocked(x, z) || isOnMonument(x, z)
     })
-    group.add(grass.group)
+    innerParkGroup.add(grass.group)
 
-    // Blender models: kananatas (far-right corner), kiriatas (far-left corner), fasor (right lawn)
+    // Blender models: kananatas (far-left corner), kiriatas (far-right corner), fasor (right lawn)
     const monument = createMonuments()
-    group.add(monument)
+    innerParkGroup.add(monument)
 
     const vegetation = createVegetation({
         isBlocked: (x, z) => grass.isBlocked(x, z) || isOnMonument(x, z, 2.5),
         lampPositions: lamps.positions,
         pathEdges: [paths.leftEdge, paths.rightEdge]
     })
-    group.add(vegetation)
+    innerParkGroup.add(vegetation)
+
+    const realisticTrees = createRealisticParkTrees({
+        isBlocked: (x, z) => grass.isBlocked(x, z) || isOnMonument(x, z, 2.5),
+        perimeterBounds
+    })
+    innerParkGroup.add(realisticTrees.group)
 
 
     return {
         group,
         vegetation,
         walk: {
-            walkables: [plaza.group, paths.walkwayMesh, grass.groundMesh],
+            walkables: [plaza.group, paths.walkwayMesh, grass.groundMesh, amphitheater.group],
             obstacles: [railingsGroup, signage, totem, lamps.group, lampPosts.group],
             start: new THREE.Vector3(-2.5, 0, 5.2),
             startDir: new THREE.Vector3(0.12, 0, -1).normalize()
         },
         update(elapsed = 0) {
             grass.grassWindUniforms.uTime.value = elapsed
+            lake.update(elapsed)
+            realisticTrees.update(elapsed)
         },
         setWind(strength) {
             grass.grassWindUniforms.uWind.value = strength
+            lake.setWind(strength)
+        },
+        setSun(dir, color) {
+            lake.setSun(dir, color)
+            realisticTrees.setSun(dir, color)
         },
         setLampGlow(v) {
             lamps.setGlow(v)
