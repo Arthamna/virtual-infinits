@@ -141,6 +141,7 @@ export function buildTemplate(scene, nodeNames) {
             mat.transparent = false
             mat.depthWrite = true
             mat.alphaTest = 0.5
+            mat.alphaToCoverage = true
         }
         return { geometry: geometryOf.get(o), material: mat, matrix: toOrigin.clone().multiply(o.matrixWorld) }
     })

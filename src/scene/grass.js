@@ -76,6 +76,7 @@ export function createParkGrass({
     }
 
     const isBlockedGrassPos = (x, z) => {
+        if (extraBlocked && extraBlocked(x, z)) return true
         if (isInsideLakeOrRim(x, z)) return true
         for (let i = 0; i < walkwayCheckPts.length; i++) {
             const p = walkwayCheckPts[i]
@@ -84,7 +85,6 @@ export function createParkGrass({
             if (dx * dx + dz * dz < walkwayClearR2) return true
         }
         if (isOnPlaza(x, z)) return true
-        if (extraBlocked(x, z)) return true
         if (x < pInnerMinX || x > pInnerMaxX || z < pInnerMinZ || z > pInnerMaxZ) return true
         const cxInner = x < pInnerMinX + innerCornerR
             ? pInnerMinX + innerCornerR
@@ -206,7 +206,7 @@ export function createParkGrass({
         return seed / 4294967296
     }
 
-    const maxGrassBlades = 32000
+    const maxGrassBlades = 40000
     const grassBlades = new THREE.InstancedMesh(tuftGeo, bladeMat, maxGrassBlades)
     grassBlades.receiveShadow = true
     const dummy = new THREE.Object3D()
