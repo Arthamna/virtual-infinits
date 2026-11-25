@@ -157,8 +157,8 @@ export function createRealisticParkTrees({ isBlocked, perimeterBounds } = {}) {
 
     const parkTreeSpecs = [
         // Signature tropical V-fork tree on the left outer lawn, just outside the amphitheater's plaque wing
-        // (between it and the lake path, as in the photos)
-        { x: -35.8, z: -49.0, targetHeight: 16.0, rotY: 0.30, seed: 104, preset: 'vfork' }
+        // (as in the photos)
+        { x: -35.7, z: -37.6, targetHeight: 16.0, rotY: 0.30, seed: 104, preset: 'vfork' }
     ]
 
     let rngState = 73856093

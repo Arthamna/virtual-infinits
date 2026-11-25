@@ -212,11 +212,12 @@ export function createInfinitsParkScene() {
     innerParkGroup.add(lampPosts.group)
 
     const amphitheater = createParkAmphitheater({
-        // across the lake path from the playground and a little north of it (drone photo), facing the path and
-        // turned slightly toward the playground; the path bends lakeward here (paths.js) to make room
-        centerX: -33.3,
+        // across the lake path from the playground, beside its slides end (drone photo), facing away from the lake:
+        // the seats back onto the path and the stage opens inland. The path bends lakeward here (paths.js) to make
+        // room; the stage's far edge stops just inside the perimeter walk (x = -40.5)
+        centerX: -36.6,
         centerZ: -43.5,
-        facingAngle: 0.21,
+        facingAngle: Math.PI,
         arcHalf: 0.86
     })
     innerParkGroup.add(amphitheater.group)
