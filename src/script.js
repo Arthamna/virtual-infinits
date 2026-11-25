@@ -141,6 +141,9 @@ function applyTimeOfDay(hour) {
 park.vegetation.addEventListener('loaded', () => {
     renderer.shadowMap.needsUpdate = true
 })
+park.trees.addEventListener('loaded', () => {
+    renderer.shadowMap.needsUpdate = true
+})
 
 const timeOfDay = { hour: 17.45 } // always sunny midday
 applyTimeOfDay(timeOfDay.hour)
@@ -220,6 +223,7 @@ function refreshNoAOCache() {
 }
 refreshNoAOCache()
 park.vegetation.addEventListener('loaded', refreshNoAOCache)
+park.trees.addEventListener('loaded', refreshNoAOCache)
 // alpha-tested leaves (userData.noAO) would be drawn as solid quads in GTAO's normal/depth pass
 // and smear AO squares onto the sky. shortcut: patches a private GTAOPass method, recheck on three upgrades
 const hideFromAO = aoPass._overrideVisibility.bind(aoPass)

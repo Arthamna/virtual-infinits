@@ -252,6 +252,7 @@ export function createInfinitsParkScene() {
     return {
         group,
         vegetation,
+        trees: realisticTrees.group,
         walk: {
             walkables: [plaza.group, paths.walkwayMesh, grass.groundMesh, amphitheater.group],
             obstacles: [railingsGroup, signage, totem, lamps.group, lampPosts.group],
