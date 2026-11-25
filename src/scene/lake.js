@@ -368,7 +368,7 @@ export function createParkLake(grassTex) {
         lakeGeo,
         new THREE.MeshStandardMaterial({ color: 0x3d5a3e, roughness: 0.12, metalness: 0, envMapIntensity: 0.6 })
     )
-    simpleWater.position.y = -0.54
+    simpleWater.position.y = lakeWater.position.y
     simpleWater.visible = false
     group.add(simpleWater)
 

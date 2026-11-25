@@ -192,6 +192,23 @@ function takePhoto() {
 const gui = new GUI({ title: 'Scene' })
 gui.add({ takePhoto }, 'takePhoto').name('Take 4K photo')
 
+// simplify mode for slow GPUs: swaps the heavy caustics/fresnel water shader for a plain glossy surface,
+// turns off sun shadows, ambient occlusion, bloom and god-rays, and pins the time to noon.
+// Lights stay on. Unticking restores the normal time and effects.
+const simplify = { on: false, normalHour: timeOfDay.hour }
+gui.add(simplify, 'on')
+    .name('Simplify mode')
+    .onChange((on) => {
+        timeOfDay.hour = on ? 12 : simplify.normalHour
+        applyTimeOfDay(timeOfDay.hour)
+        updateEnvironment()
+        park.setSimpleWater(on)
+        sunLight.castShadow = !on
+        renderer.shadowMap.needsUpdate = true
+        aoPass.enabled = !on
+        bloomPass.enabled = !on
+    })
+
 // MSAA target: the composer otherwise drops the canvas antialiasing
 const composer = new EffectComposer(
     renderer,
@@ -504,8 +521,8 @@ function renderLoop() {
     const targetExposure = baseExposure * THREE.MathUtils.lerp(1, 0.86, facingSun)
     renderer.toneMappingExposure += (targetExposure - renderer.toneMappingExposure) * (1 - Math.exp(-dt * 2.5))
 
-    // Update volumetric sun god-rays pass only when looking toward the sun
-    if (sunDot > 0.08) {
+    // Update volumetric sun god-rays pass only when looking toward the sun (never in simplify mode)
+    if (sunDot > 0.08 && !simplify.on) {
         sunProj.copy(camera.position).addScaledVector(sunDir, 2000).project(camera)
         godRaysPass.uniforms.uSunScreenPos.value.set(sunProj.x * 0.5 + 0.5, sunProj.y * 0.5 + 0.5)
         godRaysPass.uniforms.uIntensity.value = THREE.MathUtils.smoothstep(sunDot, 0.08, 0.72) * 0.62
