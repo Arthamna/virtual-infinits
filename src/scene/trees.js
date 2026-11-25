@@ -156,8 +156,9 @@ export function createRealisticParkTrees({ isBlocked, perimeterBounds } = {}) {
     const areaMaxZ = (perimeterBounds?.pInnerMaxZ ?? 4.5) - 2.0
 
     const parkTreeSpecs = [
-        // Signature tropical V-fork tree on the left outer lawn
-        { x: -33.5, z: -42.0, targetHeight: 16.0, rotY: 0.30, seed: 104, preset: 'vfork' }
+        // Signature tropical V-fork tree on the left outer lawn, just outside the amphitheater's plaque wing
+        // (between it and the lake path, as in the photos)
+        { x: -35.8, z: -49.0, targetHeight: 16.0, rotY: 0.30, seed: 104, preset: 'vfork' }
     ]
 
     let rngState = 73856093
@@ -269,7 +270,7 @@ export function createRealisticParkTrees({ isBlocked, perimeterBounds } = {}) {
         { x: 9.2, z: -61.5, targetHeight: 16.2, rotY: Math.PI + 0.22, tint: 0xe3f7ba }
     ])
     grouped.set('lakeside_ash', [
-        { x: -19.8, z: -61.5, targetHeight: 16.5, rotY: -0.22, tint: 0xdcf7b8 },
+        { x: -18.6, z: -61.5, targetHeight: 16.5, rotY: -0.22, tint: 0xdcf7b8 }, // on the bank, clear of the playground pad
         { x: 10.6, z: -45.5, targetHeight: 14.4, rotY: Math.PI - 0.28, tint: 0xd4f2b4 }
     ])
 

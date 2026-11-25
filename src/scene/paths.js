@@ -40,8 +40,13 @@ export function createParkPaths({
         const rightWaistSwing = 5.4 * Math.exp(-Math.pow((theta + 0.08) / 0.32, 2))
         const dynOffset = 3.8 + rightWaistSwing
         // left waist: push the path straight out in -x (offsetting along the bank normal pinches into a kink on the
-        // concave waist) so it runs ~straight at x ≈ -33 behind the playground pad (monument.js)
-        const leftWaistShiftX = 13.5 * Math.exp(-Math.pow((theta + Math.PI) / 0.55, 2))
+        // concave waist) so it runs ~straight at x ≈ -33 behind the playground pad (monument.js). North of the
+        // waist (d < 0, z > -55) the shift falls off faster, so the path swings back toward the lake to x ≈ -27 and
+        // leaves room behind it for the amphitheater (amphitheater.js), like the real park: playground by the
+        // water, path between, amphitheater facing it from the inland side.
+        const d = theta + Math.PI
+        const gauss = (w) => Math.exp(-Math.pow(d / w, 2))
+        const leftWaistShiftX = d >= 0 ? 13.5 * gauss(0.55) : 6.5 * gauss(0.42) + 7 * gauss(0.16)
         return new THREE.Vector3(lx + (dz / nLen) * dynOffset - leftWaistShiftX, 0, lz + (-dx / nLen) * dynOffset)
     }
 

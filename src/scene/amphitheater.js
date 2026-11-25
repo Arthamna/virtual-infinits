@@ -211,13 +211,14 @@ export function createParkAmphitheater({
         metalness: 0.72
     })
     const plaque = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.24, 0.025), plaqueMat)
+    // on the outer face of the right-hand wing as seen from the stage (a1 side), like the photos
     const plaqueR = 6.55
     plaque.position.set(
-        Math.cos(a0) * plaqueR + Math.sin(a0) * 0.145,
+        Math.cos(a1) * plaqueR - Math.sin(a1) * 0.145,
         1.48,
-        Math.sin(a0) * plaqueR - Math.cos(a0) * 0.145
+        Math.sin(a1) * plaqueR + Math.cos(a1) * 0.145
     )
-    plaque.rotation.y = -a0
+    plaque.rotation.y = -a1
     group.add(plaque)
 
     const outletMat = new THREE.MeshStandardMaterial({
