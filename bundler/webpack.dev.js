@@ -14,11 +14,12 @@ module.exports = merge(
             open: true,
             server: 'http',
             allowedHosts: 'all',
+            compress: true,
             hot: false,
-            watchFiles: ['src/**', 'static/**'],
+            watchFiles: ['src/**'],
             static:
             {
-                watch: true,
+                watch: false,
                 directory: path.join(__dirname, '../static')
             },
             client:

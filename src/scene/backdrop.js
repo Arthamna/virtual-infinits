@@ -167,12 +167,12 @@ export function createBackdrop(perimeterBounds) {
     const group = new THREE.Group()
     const b = perimeterBounds
 
-    // ground beyond the outer road, with a hole so it never overlaps the park (or covers the lake bed)
+    // ground beyond the outer road extending to the sky/render horizon, with a hole for the park
     const groundShape = new THREE.Shape()
-    groundShape.moveTo(-700, -700)
-    groundShape.lineTo(700, -700)
-    groundShape.lineTo(700, 700)
-    groundShape.lineTo(-700, 700)
+    groundShape.moveTo(-4800, -4800)
+    groundShape.lineTo(4800, -4800)
+    groundShape.lineTo(4800, 4800)
+    groundShape.lineTo(-4800, 4800)
     groundShape.closePath()
     const hole = new THREE.Path()
     const inset = 0.5

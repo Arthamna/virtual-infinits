@@ -74,29 +74,44 @@ export function createParkLake(grassTex) {
 
     const bankGrassSlopeMat = new THREE.MeshStandardMaterial({
         map: grassTex,
+        bumpMap: grassTex,
+        bumpScale: 0.025,
         color: 0xb7cc9e,
         roughness: 0.95,
         metalness: 0.0,
         side: THREE.DoubleSide
     })
+    const earthTex = createConcreteTexture()
     const bankEarthWallMat = new THREE.MeshStandardMaterial({
-        map: createConcreteTexture(),
+        map: earthTex,
+        bumpMap: earthTex,
+        bumpScale: 0.04,
         color: 0x665c4b,
         roughness: 0.92,
         metalness: 0.02,
         side: THREE.DoubleSide
     })
 
-    group.add(buildBankRingStrip(bankOuterLip + 0.06, -0.038, 0.36, -0.22, bankGrassSlopeMat))
-    group.add(buildBankRingStrip(0.36, -0.22, -0.45, -1.05, bankEarthWallMat))
+    group.add(buildBankRingStrip(bankOuterLip + 0.06, -0.038, -0.35, -0.62, bankGrassSlopeMat))
+    group.add(buildBankRingStrip(-0.35, -0.62, -3.20, -2.6, bankEarthWallMat))
 
     const lakeBedGeo = new THREE.ShapeGeometry(lakeShape)
     lakeBedGeo.rotateX(-Math.PI / 2)
+    const lakeBedTex = createLakeBedTexture()
     const lakeBedMesh = new THREE.Mesh(
         lakeBedGeo,
-        new THREE.MeshStandardMaterial({ color: 0x16291c, roughness: 0.98, metalness: 0.0 })
+        new THREE.MeshStandardMaterial({
+            map: lakeBedTex,
+            bumpMap: lakeBedTex,
+            bumpScale: 0.03,
+            color: 0x8ea88c,
+            emissive: 0x1a2c1e,
+            emissiveIntensity: 0.18,
+            roughness: 0.96,
+            metalness: 0.0
+        })
     )
-    lakeBedMesh.position.y = -1.05
+    lakeBedMesh.position.y = -2.6
     group.add(lakeBedMesh)
 
     const { geometry: lakeGeo } = buildPhysicalLakeWater(lakePts)

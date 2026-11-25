@@ -1,12 +1,17 @@
 import * as THREE from 'three'
+import { createBrushedMetalTexture } from './textures'
 
 export function createRailing(length = 4.2, customPostCount = null) {
     const group = new THREE.Group()
+    const metalTex = createBrushedMetalTexture()
     const railMat = new THREE.MeshStandardMaterial({
         color: 0x0c63d6,
-        roughness: 0.32,
-        metalness: 0.45,
-        envMapIntensity: 0.55
+        roughness: 0.34,
+        roughnessMap: metalTex,
+        bumpMap: metalTex,
+        bumpScale: 0.005,
+        metalness: 0.72,
+        envMapIntensity: 0.9
     })
 
     const postCount = customPostCount ?? Math.max(2, Math.round(length / 2.1) + 1)
@@ -40,11 +45,15 @@ export function createRailing(length = 4.2, customPostCount = null) {
 
 export function createCurvedRailing(points, postCount = 5, getPostBottomY = null) {
     const group = new THREE.Group()
+    const metalTex = createBrushedMetalTexture()
     const railMat = new THREE.MeshStandardMaterial({
         color: 0x0c63d6,
-        roughness: 0.32,
-        metalness: 0.45,
-        envMapIntensity: 0.55
+        roughness: 0.34,
+        roughnessMap: metalTex,
+        bumpMap: metalTex,
+        bumpScale: 0.005,
+        metalness: 0.72,
+        envMapIntensity: 0.9
     })
 
     const toVec3 = (p, yOffset = 0) =>
