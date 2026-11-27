@@ -18,6 +18,7 @@ import { createVegetation } from './vegetation'
 import { createMonuments, isOnMonument } from './monument'
 import { createRealisticParkTrees } from './trees'
 import { createParkAmphitheater } from './amphitheater'
+import { createStoneSeating } from './stoneSeating'
 
 export function createInfinitsParkScene() {
     const group = new THREE.Group()
@@ -212,12 +213,20 @@ export function createInfinitsParkScene() {
     innerParkGroup.add(lampPosts.group)
 
     const amphitheater = createParkAmphitheater({
-        centerX: -31.6,
-        centerZ: -55.0,
-        facingAngle: -0.44,
+        // across the lake path from the playground, beside its slides end (drone photo), facing away from the lake:
+        // the seats back onto the path and the stage opens inland. The path bends lakeward here (paths.js) to make
+        // room; the stage's far edge stops just inside the perimeter walk (x = -40.5)
+        centerX: -36.6,
+        centerZ: -43.5,
+        facingAngle: Math.PI,
         arcHalf: 0.86
     })
     innerParkGroup.add(amphitheater.group)
+
+    // concrete picnic tables and cube stools on a brick pad, on the lawn between the plaza and the lake
+    // (right of the lake tip, just past the brick path that leaves the plaza)
+    const stoneSeating = createStoneSeating([{ x: 24.2, z: -5.4 }])
+    innerParkGroup.add(stoneSeating.group)
 
     const grass = createParkGrass({
         grassMat,
@@ -227,7 +236,7 @@ export function createInfinitsParkScene() {
         pathHalfWidth: plaza.pathParams.rampWidth / 2 + 0.16,
         plazaGroup: plaza.group,
         perimeterBounds,
-        extraBlocked: (x, z) => amphitheater.isBlocked(x, z) || isOnMonument(x, z)
+        extraBlocked: (x, z) => amphitheater.isBlocked(x, z) || stoneSeating.isBlocked(x, z) || isOnMonument(x, z)
     })
     innerParkGroup.add(grass.group)
 
@@ -236,14 +245,14 @@ export function createInfinitsParkScene() {
     innerParkGroup.add(monument)
 
     const vegetation = createVegetation({
-        isBlocked: (x, z) => grass.isBlocked(x, z) || isOnMonument(x, z, 2.5),
+        isBlocked: (x, z) => grass.isBlocked(x, z) || isOnMonument(x, z, 2.5) || stoneSeating.isBlocked(x, z, 2.5),
         lampPositions: lamps.positions,
         pathEdges: [paths.leftEdge, paths.rightEdge]
     })
     innerParkGroup.add(vegetation)
 
     const realisticTrees = createRealisticParkTrees({
-        isBlocked: (x, z) => grass.isBlocked(x, z) || isOnMonument(x, z, 2.5),
+        isBlocked: (x, z) => grass.isBlocked(x, z) || isOnMonument(x, z, 2.5) || stoneSeating.isBlocked(x, z, 2.5),
         perimeterBounds
     })
     innerParkGroup.add(realisticTrees.group)
@@ -254,8 +263,8 @@ export function createInfinitsParkScene() {
         vegetation,
         trees: realisticTrees.group,
         walk: {
-            walkables: [plaza.group, paths.walkwayMesh, grass.groundMesh, amphitheater.group],
-            obstacles: [railingsGroup, signage, totem, lamps.group, lampPosts.group],
+            walkables: [plaza.group, paths.walkwayMesh, grass.groundMesh, amphitheater.group, stoneSeating.pads],
+            obstacles: [railingsGroup, signage, totem, lamps.group, lampPosts.group, stoneSeating.furniture],
             start: new THREE.Vector3(-2.5, 0, 5.2),
             startDir: new THREE.Vector3(0.12, 0, -1).normalize()
         },
